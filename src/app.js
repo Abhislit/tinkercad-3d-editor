@@ -9,6 +9,8 @@ import {
   transformPoint,
   pickShape,
   groundPoint,
+  stlBytes,
+  exportFileName,
   boxMesh,
   sphereMesh,
   cylinderMesh,
@@ -439,6 +441,17 @@ document.getElementById('add-box').addEventListener('click', () => addShape('box
 document.getElementById('add-sphere').addEventListener('click', () => addShape('sphere'));
 document.getElementById('add-cylinder').addEventListener('click', () => addShape('cylinder'));
 document.getElementById('delete').addEventListener('click', deleteSelected);
+
+document.getElementById('export').addEventListener('click', () => {
+  if (state.scene.length === 0) return;
+  const blob = new Blob([stlBytes(state.scene)], { type: 'model/stl' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = exportFileName();
+  link.click();
+  URL.revokeObjectURL(url);
+});
 for (const swatch of document.querySelectorAll('.swatch')) {
   swatch.addEventListener('click', () => colorSelected(Number(swatch.dataset.color)));
 }
@@ -456,6 +469,8 @@ window.__editor = {
   scaleSelected,
   colorSelected,
   registerMesh,
+  stlBytes,
+  exportFileName,
   PALETTE,
   syncUi,
 };

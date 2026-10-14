@@ -384,3 +384,7 @@ export function groundPoint(origin, dir) {
   if (t < 0) return null;
   return [origin[0] + dir[0] * t, 0, origin[2] + dir[2] * t];
 }
+
+export function exportFileName() {
+  return 'model.stl';
+}

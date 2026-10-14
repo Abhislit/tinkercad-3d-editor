@@ -15,6 +15,7 @@ import {
   groundPoint,
   sceneTriangles,
   stlBytes,
+  exportFileName,
 } from '../src/geometry.js';
 
 let failures = 0;
@@ -268,6 +269,10 @@ check('transformPoint through a projection recovers the ray', () => {
   const inv = invert(proj);
   const world = transformPoint(inv, transformPoint(proj, [2, 3, -4]));
   world.forEach((v, i) => assert.ok(Math.abs(v - [2, 3, -4][i]) < 1e-4, `${v}`));
+});
+
+check('the download name is model.stl', () => {
+  assert.equal(exportFileName(), 'model.stl');
 });
 
 check('a single box scene is 84 bytes plus 50 per triangle', () => {
