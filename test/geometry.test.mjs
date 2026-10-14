@@ -8,6 +8,8 @@ import {
   cylinderMesh,
   triangleCount,
   aabbFor,
+  sceneTriangles,
+  stlBytes,
 } from '../src/geometry.js';
 
 let failures = 0;
@@ -59,6 +61,27 @@ function meshVolume(mesh, scale) {
       6;
   }
   return vol;
+}
+
+// Zero-area triangles (the sphere's poles) are not exported.
+function nonDegenerateTriangles(mesh) {
+  let n = 0;
+  const vertex = (t, k) => {
+    const i = mesh.indices[t * 3 + k] * 3;
+    return [mesh.positions[i], mesh.positions[i + 1], mesh.positions[i + 2]];
+  };
+  for (let t = 0; t < triangleCount(mesh); t++) {
+    const [a, b, c] = [vertex(t, 0), vertex(t, 1), vertex(t, 2)];
+    const u = b.map((x, i) => x - a[i]);
+    const w = c.map((x, i) => x - a[i]);
+    const cross = [
+      u[1] * w[2] - u[2] * w[1],
+      u[2] * w[0] - u[0] * w[2],
+      u[0] * w[1] - u[1] * w[0],
+    ];
+    if (Math.hypot(...cross) / 2 >= 1e-12) n++;
+  }
+  return n;
 }
 
 function inwardTriangles(mesh) {
@@ -141,6 +164,83 @@ check('sphere aabb is symmetric about its position', () => {
   });
   assert.deepEqual(bb.min, [4, 0, -3]);
   assert.deepEqual(bb.max, [6, 2, -1]);
+});
+
+const boxShape = {
+  type: 'box',
+  position: [0, 0.5, 0],
+  rotation: [0, 0, 0],
+  size: [1, 1, 1],
+  color: [1, 0, 0],
+};
+const sphereShape = {
+  type: 'sphere',
+  position: [2, 0.5, 0],
+  rotation: [0, 0, 0],
+  size: [1, 1, 1],
+  color: [0, 1, 0],
+};
+const cylinderShape = {
+  type: 'cylinder',
+  position: [4, 0.5, 0],
+  rotation: [0, 0, 0],
+  size: [1, 1, 1],
+  color: [0, 0, 1],
+};
+
+check('an empty scene exports a bare 84 byte header', () => {
+  assert.equal(stlBytes([]).byteLength, 84);
+});
+
+check('a single box scene is 84 bytes plus 50 per triangle', () => {
+  const expected = 84 + 50 * nonDegenerateTriangles(boxMesh());
+  assert.equal(stlBytes([boxShape]).byteLength, expected);
+});
+
+check('a three shape scene sums every primitive triangle count', () => {
+  const scene = [boxShape, sphereShape, cylinderShape];
+  const expected =
+    84 +
+    50 *
+      (nonDegenerateTriangles(boxMesh()) +
+        nonDegenerateTriangles(sphereMesh(32, 16)) +
+        nonDegenerateTriangles(cylinderMesh(32)));
+  assert.equal(stlBytes(scene).byteLength, expected);
+});
+
+check('the header starts with solid and declares the triangle count', () => {
+  const scene = [boxShape];
+  const bytes = new Uint8Array(stlBytes(scene));
+  assert.equal(String.fromCharCode(...bytes.slice(0, 5)), 'solid');
+  const count = new DataView(bytes.buffer).getUint32(80, true);
+  assert.equal(count, nonDegenerateTriangles(boxMesh()));
+});
+
+check('every exported facet normal has unit length', () => {
+  const scene = [boxShape, sphereShape, cylinderShape];
+  const view = new DataView(stlBytes(scene));
+  const count = view.getUint32(80, true);
+  for (let t = 0; t < count; t++) {
+    const base = 84 + t * 50;
+    const [nx, ny, nz] = [view.getFloat32(base, true), view.getFloat32(base + 4, true), view.getFloat32(base + 8, true)];
+    assert.ok(Math.abs(Math.hypot(nx, ny, nz) - 1) < 1e-3, `facet ${t} normal length ${Math.hypot(nx, ny, nz)}`);
+  }
+});
+
+check('sceneTriangles returns 9 floats per triangle', () => {
+  assert.equal(sceneTriangles([boxShape, sphereShape, cylinderShape]).length, 9 * (
+    nonDegenerateTriangles(boxMesh()) +
+      nonDegenerateTriangles(sphereMesh(32, 16)) +
+      nonDegenerateTriangles(cylinderMesh(32))
+  ));
+});
+
+check('exported vertices are in world space', () => {
+  const tris = sceneTriangles([boxShape]);
+  const ys = [];
+  for (let i = 1; i < tris.length; i += 3) ys.push(tris[i]);
+  assert.ok(Math.min(...ys) >= 0, 'box sits on y=0');
+  assert.ok(Math.abs(Math.max(...ys) - 1) < 1e-6, 'box reaches y=1');
 });
 
 check('every primitive is wound outward', () => {

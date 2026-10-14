@@ -232,3 +232,84 @@ export function aabbFor(shape) {
     max: max.map((v, a) => v + shape.position[a]),
   };
 }
+const SPHERE_SEGMENTS = 32;
+const SPHERE_RINGS = 16;
+const CYLINDER_SEGMENTS = 32;
+
+const meshCache = new Map();
+function meshFor(type) {
+  if (!meshCache.has(type)) {
+    meshCache.set(
+      type,
+      type === 'sphere'
+        ? sphereMesh(SPHERE_SEGMENTS, SPHERE_RINGS)
+        : type === 'cylinder'
+          ? cylinderMesh(CYLINDER_SEGMENTS)
+          : boxMesh(),
+    );
+  }
+  return meshCache.get(type);
+}
+
+// World-space triangles, 9 floats per triangle. Degenerate triangles are
+// dropped so they do not reach the STL.
+export function sceneTriangles(scene) {
+  const out = [];
+  for (const shape of scene) {
+    const mesh = meshFor(shape.type);
+    const m = compose(shape.position, shape.rotation, shape.size);
+    for (let i = 0; i < mesh.indices.length; i += 3) {
+      const world = [0, 1, 2].map((k) => {
+        const idx = mesh.indices[i + k] * 3;
+        return transformPoint(m, [
+          mesh.positions[idx],
+          mesh.positions[idx + 1],
+          mesh.positions[idx + 2],
+        ]);
+      });
+      const u = [0, 1, 2].map((a) => world[1][a] - world[0][a]);
+      const w = [0, 1, 2].map((a) => world[2][a] - world[0][a]);
+      const n = [
+        u[1] * w[2] - u[2] * w[1],
+        u[2] * w[0] - u[0] * w[2],
+        u[0] * w[1] - u[1] * w[0],
+      ];
+      if (Math.hypot(...n) < 1e-12) continue;
+      for (const v of world) out.push(v[0], v[1], v[2]);
+    }
+  }
+  return new Float32Array(out);
+}
+
+// Binary STL: 80 byte header, uint32 triangle count, 50 bytes per facet.
+export function stlBytes(scene) {
+  const tris = sceneTriangles(scene);
+  const count = tris.length / 9;
+  const buffer = new ArrayBuffer(84 + 50 * count);
+  const bytes = new Uint8Array(buffer);
+  const view = new DataView(buffer);
+  for (let i = 0; i < 5; i++) bytes[i] = 'solid'.charCodeAt(i);
+  view.setUint32(80, count, true);
+  for (let t = 0; t < count; t++) {
+    const o = t * 9;
+    const a = [tris[o], tris[o + 1], tris[o + 2]];
+    const b = [tris[o + 3], tris[o + 4], tris[o + 5]];
+    const c = [tris[o + 6], tris[o + 7], tris[o + 8]];
+    const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const w = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    let n = [
+      u[1] * w[2] - u[2] * w[1],
+      u[2] * w[0] - u[0] * w[2],
+      u[0] * w[1] - u[1] * w[0],
+    ];
+    const len = Math.hypot(...n) || 1;
+    n = n.map((v) => v / len);
+    const base = 84 + t * 50;
+    view.setFloat32(base, n[0], true);
+    view.setFloat32(base + 4, n[1], true);
+    view.setFloat32(base + 8, n[2], true);
+    for (let v = 0; v < 9; v++) view.setFloat32(base + 12 + v * 4, tris[o + v], true);
+    view.setUint16(base + 48, 0, true);
+  }
+  return buffer;
+}
