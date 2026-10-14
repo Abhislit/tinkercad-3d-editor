@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>3D shape editor</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: #14161a;
+    color: #e7e9ee;
+    font: 13px/1.4 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+  }
+  #toolbar {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 8px 10px;
+    background: #1d2027;
+    border-bottom: 1px solid #2b2f38;
+  }
+  #toolbar .sep { width: 1px; height: 20px; background: #2b2f38; margin: 0 4px; }
+  button {
+    background: #262a33;
+    color: inherit;
+    border: 1px solid #363b46;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font: inherit;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: #313742; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  .swatch {
+    width: 20px; height: 20px; padding: 0;
+    border-radius: 5px; border: 1px solid #0006;
+  }
+  #stage { position: relative; flex: 1; min-height: 0; }
+  canvas { display: block; width: 100%; height: 100%; }
+  #hint {
+    padding: 6px 10px;
+    background: #1d2027;
+    border-top: 1px solid #2b2f38;
+    color: #99a1b0;
+  }
+  #hint b { color: #e7e9ee; font-weight: 600; }
+  #gl-error {
+    position: absolute; inset: 0;
+    display: none;
+    place-items: center;
+    padding: 24px;
+    text-align: center;
+    background: #14161a;
+    color: #ff9f9f;
+  }
+</style>
+</head>
+<body>
+  <div id="toolbar">
+    <button id="add-box">Box</button>
+    <button id="add-sphere">Sphere</button>
+    <button id="add-cylinder">Cylinder</button>
+    <span class="sep"></span>
+    <button class="swatch" data-color="0" style="background:#e8503a" title="1"></button>
+    <button class="swatch" data-color="1" style="background:#f0a02a" title="2"></button>
+    <button class="swatch" data-color="2" style="background:#e8d44a" title="3"></button>
+    <button class="swatch" data-color="3" style="background:#63c95d" title="4"></button>
+    <button class="swatch" data-color="4" style="background:#3aa8e8" title="5"></button>
+    <button class="swatch" data-color="5" style="background:#7a5ce8" title="6"></button>
+    <button class="swatch" data-color="6" style="background:#e85ca8" title="7"></button>
+    <button class="swatch" data-color="7" style="background:#d8dde6" title="8"></button>
+    <span class="sep"></span>
+    <button id="delete" disabled>Delete</button>
+    <button id="export" disabled>Export STL</button>
+  </div>
+  <div id="stage">
+    <canvas id="view"></canvas>
+    <div id="gl-error">WebGL2 is unavailable in this browser, so the 3D viewport cannot start.</div>
+  </div>
+  <div id="hint">Drag to orbit &middot; shift-drag to pan &middot; wheel to zoom &middot; click a shape to select</div>
+  <script type="module" src="./src/app.js"></script>
+</body>
+</html>

@@ -18,6 +18,33 @@ export function multiply(a, b) {
   return out;
 }
 
+// Cofactor inverse. Column-major: element (row r, col c) is m[c * 4 + r].
+export function invert(m) {
+  const at = (r, c) => m[c * 4 + r];
+  const cofactor = (r, c) => {
+    const rows = [0, 1, 2, 3].filter((x) => x !== r);
+    const cols = [0, 1, 2, 3].filter((x) => x !== c);
+    const minor = [
+      at(rows[0], cols[0]), at(rows[0], cols[1]), at(rows[0], cols[2]),
+      at(rows[1], cols[0]), at(rows[1], cols[1]), at(rows[1], cols[2]),
+      at(rows[2], cols[0]), at(rows[2], cols[1]), at(rows[2], cols[2]),
+    ];
+    return (
+      minor[0] * (minor[4] * minor[8] - minor[5] * minor[7]) -
+      minor[1] * (minor[3] * minor[8] - minor[5] * minor[6]) +
+      minor[2] * (minor[3] * minor[7] - minor[4] * minor[6])
+    ) * ((r + c) % 2 ? -1 : 1);
+  };
+  let det = 0;
+  for (let c = 0; c < 4; c++) det += at(0, c) * cofactor(0, c);
+  const out = new Float32Array(16);
+  if (!det) return out; // singular: caller gets a zero matrix, ray math degrades
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 4; c++) out[c * 4 + r] = cofactor(c, r) / det;
+  }
+  return out;
+}
+
 export function perspective(fovY, aspect, near, far) {
   const f = 1 / Math.tan(fovY / 2);
   const nf = 1 / (near - far);

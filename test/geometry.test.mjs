@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import {
   identity,
   multiply,
+  invert,
+  perspective,
+  compose,
   transformPoint,
   boxMesh,
   sphereMesh,
@@ -190,6 +193,25 @@ const cylinderShape = {
 
 check('an empty scene exports a bare 84 byte header', () => {
   assert.equal(stlBytes([]).byteLength, 84);
+});
+
+check('invert undoes multiply', () => {
+  const m = compose([3, -2, 1], [0.4, 1.1, -0.3], [2, 3, 4]);
+  const round = multiply(invert(m), m);
+  const expected = identity();
+  for (let i = 0; i < 16; i++) {
+    assert.ok(
+      Math.abs(round[i] - expected[i]) < 1e-5,
+      `element ${i}: ${round[i]} != ${expected[i]}`,
+    );
+  }
+});
+
+check('transformPoint through a projection recovers the ray', () => {
+  const proj = perspective(Math.PI / 4, 1.5, 0.1, 200);
+  const inv = invert(proj);
+  const world = transformPoint(inv, transformPoint(proj, [2, 3, -4]));
+  world.forEach((v, i) => assert.ok(Math.abs(v - [2, 3, -4][i]) < 1e-4, `${v}`));
 });
 
 check('a single box scene is 84 bytes plus 50 per triangle', () => {
