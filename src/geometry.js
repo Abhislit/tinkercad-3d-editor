@@ -340,3 +340,47 @@ export function stlBytes(scene) {
   }
   return buffer;
 }
+
+// Ray versus world-space AABB slab test, expanded by tol on every axis.
+// Returns the index of the nearest shape along the ray, or -1.
+export function pickShape(origin, dir, scene, tolFor) {
+  let best = -1;
+  let bestT = Infinity;
+  scene.forEach((shape, i) => {
+    const { min, max } = aabbFor(shape);
+    const tol = tolFor ? tolFor(shape) : 0;
+    let t0 = 0;
+    let t1 = Infinity;
+    for (let a = 0; a < 3; a++) {
+      const lo = min[a] - tol;
+      const hi = max[a] + tol;
+      if (Math.abs(dir[a]) < 1e-8) {
+        if (origin[a] < lo || origin[a] > hi) return;
+        continue;
+      }
+      let near = (lo - origin[a]) / dir[a];
+      let far = (hi - origin[a]) / dir[a];
+      if (near > far) {
+        const swap = near;
+        near = far;
+        far = swap;
+      }
+      if (near > t0) t0 = near;
+      if (far < t1) t1 = far;
+      if (t0 > t1) return;
+    }
+    if (t1 >= 0 && t0 < bestT) {
+      bestT = t0;
+      best = i;
+    }
+  });
+  return best;
+}
+
+// Where a pointer ray meets the y = 0 plane, or null when it never does.
+export function groundPoint(origin, dir) {
+  if (Math.abs(dir[1]) < 1e-8) return null;
+  const t = -origin[1] / dir[1];
+  if (t < 0) return null;
+  return [origin[0] + dir[0] * t, 0, origin[2] + dir[2] * t];
+}

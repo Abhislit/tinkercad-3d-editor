@@ -11,6 +11,8 @@ import {
   cylinderMesh,
   triangleCount,
   aabbFor,
+  pickShape,
+  groundPoint,
   sceneTriangles,
   stlBytes,
 } from '../src/geometry.js';
@@ -193,6 +195,60 @@ const cylinderShape = {
 
 check('an empty scene exports a bare 84 byte header', () => {
   assert.equal(stlBytes([]).byteLength, 84);
+});
+
+const atOrigin = (type, size = [1, 1, 1]) => ({
+  type,
+  position: [0, 0.5, 0],
+  rotation: [0, 0, 0],
+  size,
+  color: [1, 1, 1],
+});
+
+const downZ = { origin: [0, 0.5, 5], dir: [0, 0, -1] };
+
+check('a ray through the middle of a shape hits it', () => {
+  assert.equal(pickShape(downZ.origin, downZ.dir, [atOrigin('box')], () => 0), 0);
+});
+
+check('a ray that misses everything returns -1', () => {
+  assert.equal(pickShape(downZ.origin, downZ.dir, [], () => 0), -1);
+  const away = { origin: [0, 0.5, 5], dir: [0, 0, 1] };
+  assert.equal(pickShape(away.origin, away.dir, [atOrigin('box')], () => 0), -1);
+});
+
+check('the nearest shape along the ray wins', () => {
+  const near = { ...atOrigin('box'), position: [0, 0.5, 1] };
+  const far = { ...atOrigin('sphere'), position: [0, 0.5, -2] };
+  assert.equal(pickShape(downZ.origin, downZ.dir, [far, near], () => 0), 1);
+});
+
+check('a shape behind the ray origin is not hit', () => {
+  const ray = { origin: [0, 0.5, -5], dir: [0, 0, 1] };
+  const shape = { ...atOrigin('box'), position: [0, 0.5, -10] };
+  assert.equal(pickShape(ray.origin, ray.dir, [shape], () => 0), -1);
+  const ahead = { ...atOrigin('box'), position: [0, 0.5, 10] };
+  assert.equal(pickShape(ray.origin, ray.dir, [ahead], () => 0), 0);
+});
+
+check('tolerance makes a tiny distant shape clickable', () => {
+  const tiny = { ...atOrigin('box'), size: [0.05, 0.05, 0.05] };
+  const grazing = { origin: [0.3, 0.5, 5], dir: [0, 0, -1] };
+  assert.equal(pickShape(grazing.origin, grazing.dir, [tiny], () => 0), -1);
+  assert.equal(pickShape(grazing.origin, grazing.dir, [tiny], () => 0.5), 0);
+});
+
+check('groundPoint gives where a ray meets y=0', () => {
+  const p = groundPoint([0, 2, 3], [0, -1, 0]);
+  assert.deepEqual(p, [0, 0, 3]);
+});
+
+check('groundPoint returns null for a horizontal ray', () => {
+  assert.equal(groundPoint([0, 2, 3], [0, 0, -1]), null);
+});
+
+check('groundPoint returns null when the plane is behind the ray', () => {
+  assert.equal(groundPoint([0, 2, 3], [0, 1, 0]), null);
 });
 
 check('invert undoes multiply', () => {

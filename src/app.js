@@ -7,7 +7,8 @@ import {
   compose,
   invert,
   transformPoint,
-  aabbFor,
+  pickShape,
+  groundPoint,
   boxMesh,
   sphereMesh,
   cylinderMesh,
@@ -122,8 +123,18 @@ function createMesh(mesh) {
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indices);
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.STATIC_DRAW);
 
+  // Same triangles read as edges, for the selection outline.
+  const edges = new Uint16Array((mesh.indices.length / 3) * 6);
+  for (let t = 0; t < mesh.indices.length / 3; t++) {
+    const [a, b, c] = [mesh.indices[t * 3], mesh.indices[t * 3 + 1], mesh.indices[t * 3 + 2]];
+    edges.set([a, b, b, c, c, a], t * 6);
+  }
+  const lineIndices = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, lineIndices);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, edges, gl.STATIC_DRAW);
+
   gl.bindVertexArray(null);
-  return { vao, count: mesh.indices.length };
+  return { vao, count: mesh.indices.length, edges, lineIndices, indices };
 }
 
 function createGridMesh() {
@@ -206,6 +217,7 @@ function draw() {
     gl.uniform3f(uniforms.color, 0.27, 0.29, 0.34);
     gl.disable(gl.CULL_FACE);
     gl.bindVertexArray(gridMesh.vao);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gridMesh.indices);
     gl.drawElements(gl.LINES, gridMesh.count, gl.UNSIGNED_SHORT, 0);
   }
 
@@ -220,7 +232,24 @@ function draw() {
     gl.uniformMatrix3fv(uniforms.normalMat, false, normalMatrixOf(model));
     gl.uniform3fv(uniforms.color, shape.color);
     gl.bindVertexArray(mesh.vao);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.indices);
     gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
+
+    // Selection outline: same mesh as wireframe on top of the shaded solid.
+    if (i === state.selected) {
+      gl.disable(gl.CULL_FACE);
+      gl.uniform3f(uniforms.color, 1, 1, 1);
+      const grown = compose(
+        shape.position,
+        shape.rotation,
+        shape.size.map((v) => v + 0.04),
+      );
+      gl.uniformMatrix4fv(uniforms.model, false, grown);
+      gl.uniformMatrix3fv(uniforms.normalMat, false, normalMatrixOf(grown));
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.lineIndices);
+      gl.drawElements(gl.LINES, mesh.edges.length, gl.UNSIGNED_SHORT, 0);
+      gl.enable(gl.CULL_FACE);
+    }
   }
   gl.bindVertexArray(null);
   requestAnimationFrame(draw);
@@ -250,45 +279,6 @@ function worldRay(event) {
   const dir = [far[0] - near[0], far[1] - near[1], far[2] - near[2]];
   const len = Math.hypot(...dir) || 1;
   return { origin: near, dir: dir.map((v) => v / len) };
-}
-
-// Slab test against a world-space AABB, expanded by tol on every axis.
-export function pickShape(origin, dir, scene, tolFor) {
-  let best = -1;
-  let bestT = Infinity;
-  scene.forEach((shape, i) => {
-    const { min, max } = aabbFor(shape);
-    const tol = tolFor ? tolFor(shape) : 0;
-    let t0 = 0;
-    let t1 = Infinity;
-    for (let a = 0; a < 3; a++) {
-      const lo = min[a] - tol;
-      const hi = max[a] + tol;
-      if (Math.abs(dir[a]) < 1e-8) {
-        if (origin[a] < lo || origin[a] > hi) return;
-        continue;
-      }
-      let near = (lo - origin[a]) / dir[a];
-      let far = (hi - origin[a]) / dir[a];
-      if (near > far) [near, far] = [far, near];
-      t0 = Math.max(t0, near);
-      t1 = Math.min(t1, far);
-      if (t0 > t1) return;
-    }
-    if (t1 >= 0 && t0 < bestT) {
-      bestT = t0;
-      best = i;
-    }
-  });
-  return best;
-}
-
-// Where a pointer ray meets the y = 0 plane, or null when it never does.
-export function groundPoint(origin, dir) {
-  if (Math.abs(dir[1]) < 1e-8) return null;
-  const t = -origin[1] / dir[1];
-  if (t < 0) return null;
-  return [origin[0] + dir[0] * t, 0, origin[2] + dir[2] * t];
 }
 
 function pickTolerance(shape) {
