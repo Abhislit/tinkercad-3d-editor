@@ -271,6 +271,69 @@ check('transformPoint through a projection recovers the ray', () => {
   world.forEach((v, i) => assert.ok(Math.abs(v - [2, 3, -4][i]) < 1e-4, `${v}`));
 });
 
+// The pick box must fully CONTAIN the drawn geometry (it may be larger: the
+// bound of a rotated box is conservative). It must never be smaller.
+check('aabb contains the exported STL bounds for every primitive', () => {
+  for (const type of ['box', 'sphere', 'cylinder']) {
+    const shape = {
+      type,
+      position: [1, 2, 3],
+      rotation: [0.3, 0.7, -0.2],
+      size: [2, 3, 4],
+      color: [1, 1, 1],
+    };
+    const bb = aabbFor(shape);
+    const tris = sceneTriangles([shape]);
+    const seen = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
+    for (let i = 0; i < tris.length; i += 3) {
+      for (let a = 0; a < 3; a++) {
+        seen.min[a] = Math.min(seen.min[a], tris[i + a]);
+        seen.max[a] = Math.max(seen.max[a], tris[i + a]);
+      }
+    }
+    for (let a = 0; a < 3; a++) {
+      assert.ok(bb.min[a] <= seen.min[a] + 1e-5, `${type} min[${a}]: box ${bb.min[a]} misses mesh ${seen.min[a]}`);
+      assert.ok(bb.max[a] >= seen.max[a] - 1e-5, `${type} max[${a}]: box ${bb.max[a]} misses mesh ${seen.max[a]}`);
+    }
+  }
+});
+
+check('an unrotated primitive bound matches its mesh exactly', () => {
+  for (const type of ['box', 'sphere', 'cylinder']) {
+    const shape = { type, position: [1, 2, 3], rotation: [0, 0, 0], size: [2, 3, 4], color: [1, 1, 1] };
+    const bb = aabbFor(shape);
+    const tris = sceneTriangles([shape]);
+    const seen = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
+    for (let i = 0; i < tris.length; i += 3) {
+      for (let a = 0; a < 3; a++) {
+        seen.min[a] = Math.min(seen.min[a], tris[i + a]);
+        seen.max[a] = Math.max(seen.max[a], tris[i + a]);
+      }
+    }
+    for (let a = 0; a < 3; a++) {
+      assert.ok(Math.abs(bb.min[a] - seen.min[a]) < 1e-5, `${type} min[${a}]: ${bb.min[a]} vs ${seen.min[a]}`);
+      assert.ok(Math.abs(bb.max[a] - seen.max[a]) < 1e-5, `${type} max[${a}]: ${bb.max[a]} vs ${seen.max[a]}`);
+    }
+  }
+});
+
+check('a sphere of size 2 measures 2 across, not 4', () => {
+  const bb = aabbFor({ type: 'sphere', position: [0, 0, 0], rotation: [0, 0, 0], size: [2, 2, 2], color: [1, 1, 1] });
+  assert.ok(Math.abs(bb.max[0] - 1) < 1e-6, `x extent was ${bb.max[0] - bb.min[0]}`);
+});
+
+check('a cylinder of size 2 x 3 x 4 measures 2 x 3 x 4', () => {
+  const bb = aabbFor({ type: 'cylinder', position: [0, 0, 0], rotation: [0, 0, 0], size: [2, 3, 4], color: [1, 1, 1] });
+  assert.ok(Math.abs(bb.max[0] - bb.min[0] - 2) < 1e-6, `x extent ${bb.max[0] - bb.min[0]}`);
+  assert.ok(Math.abs(bb.max[1] - bb.min[1] - 3) < 1e-6, `y extent ${bb.max[1] - bb.min[1]}`);
+  assert.ok(Math.abs(bb.max[2] - bb.min[2] - 4) < 1e-6, `z extent ${bb.max[2] - bb.min[2]}`);
+});
+
+check('groundPoint refuses an intersection past the world limit', () => {
+  assert.equal(groundPoint([0, 2, 0], [0, -0.001, -1]), null);
+  assert.deepEqual(groundPoint([0, 2, 0], [0, -1, -0.05]), [0, 0, -0.1]);
+});
+
 check('the download name is model.stl', () => {
   assert.equal(exportFileName(), 'model.stl');
 });

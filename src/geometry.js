@@ -236,8 +236,20 @@ export function cylinderMesh(segments) {
   return b.build();
 }
 
-// Conservative world-space bounds: the rotated local half-extent box.
+// Meshes are authored with unit radius / unit height, so size means the FULL
+// extent of a shape. Box: scale = size. Sphere: scale = size / 2 (diameter).
+// Cylinder: radius scale = size / 2 on x and z, height scale = size[1].
+export function scaleFor(shape) {
+  const [w, h, d] = shape.size;
+  if (shape.type === 'sphere') return [w / 2, h / 2, d / 2];
+  if (shape.type === 'cylinder') return [w / 2, h, d / 2];
+  return [w, h, d];
+}
+
+// World-space bounds of the shape as it is actually drawn and exported.
 export function aabbFor(shape) {
+  // Every primitive ends up exactly `size` across once scaleFor is applied,
+  // so the world-space bound is always size / 2.
   const half = [shape.size[0] / 2, shape.size[1] / 2, shape.size[2] / 2];
   const rot = compose([0, 0, 0], shape.rotation, [1, 1, 1]);
   const min = [Infinity, Infinity, Infinity];
@@ -284,7 +296,7 @@ export function sceneTriangles(scene) {
   const out = [];
   for (const shape of scene) {
     const mesh = meshFor(shape.type);
-    const m = compose(shape.position, shape.rotation, shape.size);
+    const m = compose(shape.position, shape.rotation, scaleFor(shape));
     for (let i = 0; i < mesh.indices.length; i += 3) {
       const world = [0, 1, 2].map((k) => {
         const idx = mesh.indices[i + k] * 3;
@@ -377,11 +389,17 @@ export function pickShape(origin, dir, scene, tolFor) {
   return best;
 }
 
-// Where a pointer ray meets the y = 0 plane, or null when it never does.
+// Shapes may not leave the world: the grid is 10 units out and the camera's far
+// plane is 200, so anything past WORLD_LIMIT is unreachable and unrecoverable.
+export const WORLD_LIMIT = 100;
+
+// Where a pointer ray meets the y = 0 plane, or null when it never does within
+// the world. Rays grazing the horizon from just below the ground plane solve to
+// distances of thousands of units, so the bound is enforced here.
 export function groundPoint(origin, dir) {
   if (Math.abs(dir[1]) < 1e-8) return null;
   const t = -origin[1] / dir[1];
-  if (t < 0) return null;
+  if (t < 0 || t > WORLD_LIMIT) return null;
   return [origin[0] + dir[0] * t, 0, origin[2] + dir[2] * t];
 }
 

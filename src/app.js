@@ -9,6 +9,8 @@ import {
   transformPoint,
   pickShape,
   groundPoint,
+  scaleFor,
+  WORLD_LIMIT,
   stlBytes,
   exportFileName,
   boxMesh,
@@ -229,7 +231,7 @@ function draw() {
     const shape = state.scene[i];
     const mesh = meshCache.get(shape.type);
     if (!mesh) continue;
-    const model = compose(shape.position, shape.rotation, shape.size);
+    const model = compose(shape.position, shape.rotation, scaleFor(shape));
     gl.uniformMatrix4fv(uniforms.model, false, model);
     gl.uniformMatrix3fv(uniforms.normalMat, false, normalMatrixOf(model));
     gl.uniform3fv(uniforms.color, shape.color);
@@ -244,7 +246,7 @@ function draw() {
       const grown = compose(
         shape.position,
         shape.rotation,
-        shape.size.map((v) => v + 0.04),
+        scaleFor(shape).map((v) => v + 0.04),
       );
       gl.uniformMatrix4fv(uniforms.model, false, grown);
       gl.uniformMatrix3fv(uniforms.normalMat, false, normalMatrixOf(grown));
@@ -321,8 +323,10 @@ canvas.addEventListener('pointermove', (event) => {
   if (!drag) return;
   if (drag.mode === 'orbit') {
     state.camera.theta -= (event.clientX - drag.x) * 0.01;
+    // Stop just short of horizontal: below it the eye drops under the ground
+    // plane and ground-point solving blows up.
     state.camera.phi = Math.min(
-      Math.PI - 0.05,
+      Math.PI / 2 - 0.05,
       Math.max(0.05, state.camera.phi - (event.clientY - drag.y) * 0.01),
     );
     drag.x = event.clientX;
