@@ -9,6 +9,11 @@ import {
   boxMesh,
   sphereMesh,
   cylinderMesh,
+  coneMesh,
+  pyramidMesh,
+  torusMesh,
+  capsuleMesh,
+  tubeMesh,
   triangleCount,
   aabbFor,
   pickShape,
@@ -273,6 +278,84 @@ check('transformPoint through a projection recovers the ray', () => {
 
 // The pick box must fully CONTAIN the drawn geometry (it may be larger: the
 // bound of a rotated box is conservative). It must never be smaller.
+const PRIMITIVES = [
+  ['box', boxMesh()],
+  ['sphere', sphereMesh(32, 16)],
+  ['cylinder', cylinderMesh(32)],
+  ['cone', coneMesh(32)],
+  ['pyramid', pyramidMesh()],
+  ['torus', torusMesh(32, 16)],
+  ['capsule', capsuleMesh(32, 8)],
+  ['tube', tubeMesh(32)],
+];
+
+check('every primitive has a non-zero triangle count', () => {
+  for (const [type, mesh] of PRIMITIVES) {
+    assert.ok(triangleCount(mesh) > 0, `${type} has no triangles`);
+  }
+});
+
+// Only valid for solids that contain the origin: on a torus or a tube the
+// inner surface faces back toward the origin, so a centroid test would flag
+// correct geometry. Those are covered by the signed-volume check instead.
+const STAR_SHAPED = ['box', 'sphere', 'cylinder', 'cone', 'pyramid', 'capsule'];
+
+check('star shaped primitives are wound outward', () => {
+  for (const [type, mesh] of PRIMITIVES) {
+    if (!STAR_SHAPED.includes(type)) continue;
+    assert.equal(inwardTriangles(mesh), 0, `${type} has inward facing triangles`);
+  }
+});
+
+check('every primitive volume is positive and near its exact value', () => {
+  const exact = {
+    cone: Math.PI / 3,
+    pyramid: 2 / 3,
+    torus: 2 * Math.PI ** 2 * 0.65 * 0.35 ** 2,
+    capsule: Math.PI * 0.25 * 0.5 + (4 / 3) * Math.PI * 0.125,
+    tube: Math.PI * (1 - 0.36),
+  };
+  const meshes = {
+    cone: coneMesh(64),
+    pyramid: pyramidMesh(),
+    torus: torusMesh(48, 24),
+    capsule: capsuleMesh(64, 16),
+    tube: tubeMesh(64),
+  };
+  for (const [type, expected] of Object.entries(exact)) {
+    const actual = meshVolume(meshes[type], [1, 1, 1]);
+    // A closed mesh with outward winding always sums to a positive volume.
+    assert.ok(actual > 0, `${type} signed volume was ${actual} (winding inverted?)`);
+    assert.ok(
+      Math.abs(actual - expected) / expected < 0.02,
+      `${type} volume ${actual} vs ${expected}`,
+    );
+  }
+});
+
+check('size means the full extent for every primitive', () => {
+  const size = [2, 3, 4];
+  for (const type of ['cone', 'pyramid', 'torus', 'capsule', 'tube']) {
+    const shape = { type, position: [0, 0, 0], rotation: [0, 0, 0], size, color: [1, 1, 1] };
+    const bb = aabbFor(shape);
+    const tris = sceneTriangles([shape]);
+    const seen = { min: [Infinity, Infinity, Infinity], max: [-Infinity, -Infinity, -Infinity] };
+    for (let i = 0; i < tris.length; i += 3) {
+      for (let a = 0; a < 3; a++) {
+        seen.min[a] = Math.min(seen.min[a], tris[i + a]);
+        seen.max[a] = Math.max(seen.max[a], tris[i + a]);
+      }
+    }
+    for (let a = 0; a < 3; a++) {
+      const extent = seen.max[a] - seen.min[a];
+      assert.ok(
+        Math.abs(extent - size[a]) < 0.05,
+        `${type} axis ${a} is ${extent.toFixed(3)} across, expected ${size[a]}`,
+      );
+    }
+  }
+});
+
 check('aabb contains the exported STL bounds for every primitive', () => {
   for (const type of ['box', 'sphere', 'cylinder']) {
     const shape = {

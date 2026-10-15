@@ -1,8 +1,12 @@
 # 3D shape editor
 
-A small Tinkercad-style 3D shape editor: place box, sphere and cylinder shapes on a
-ground plane, orbit the camera, select and transform them, and export the scene as
-a binary STL for 3D printing.
+A small Tinkercad-style 3D shape editor: place shapes on a ground plane, orbit the
+camera, select and transform them, undo and redo, and export the scene as a binary
+STL for 3D printing.
+
+Eight primitives: box, sphere, cylinder, cone, pyramid, torus, capsule and a hollow
+tube. For every one of them `size` is the full extent, so a size-2 shape measures 2
+units across whichever axis you look at.
 
 No dependencies, no build step. Plain ES modules, WebGL2 and one shader.
 
@@ -23,26 +27,32 @@ A real HTTP origin is required — ES modules do not load over `file://`.
 | Zoom | wheel |
 | Select | click a shape |
 | Move | drag the selected shape |
-| Rotate | `R` / `Shift+R` (15° steps) |
+| Rotate | `R` (Y), `X`, `Z` — add `Shift` to reverse |
 | Scale | `[` and `]` (±10%) |
 | Colour | `1`–`8`, or the swatches |
 | Delete | `Delete` / `Backspace` |
-| Add shape | Box / Sphere / Cylinder buttons |
+| Duplicate | `Ctrl+D` |
+| Undo / redo | `Ctrl+Z` / `Ctrl+Shift+Z` (also `Ctrl+Y`) |
+| Add shape | any of the eight primitive buttons |
+| Snap to grid | `Snap` button — drag positions snap to 0.5 |
+| Save / load | `Save` / `Load` — stores the scene in localStorage |
 | Export | Export STL |
 
 ## Tests
 
 ```sh
-node test/geometry.test.mjs
+node test/geometry.test.mjs && node test/history.test.mjs
 ```
 
-Covers the matrix helpers (including the 4x4 inverse used by ray picking), primitive
-tessellation, signed volumes, winding direction, world-space bounds, ray picking and
-the STL byte layout.
+Covers the matrix helpers (including the 4x4 inverse used by ray picking), every
+primitive's tessellation, signed volume and winding direction, world-space bounds,
+ray picking, the STL byte layout, and the undo/redo stack.
 
 ## Layout
 
 - `src/geometry.js` — pure math: matrices, primitives, bounds, picking, STL bytes.
   No DOM, no WebGL, fully testable.
 - `src/app.js` — scene state, camera, WebGL2 rendering and DOM wiring.
-- `test/geometry.test.mjs` — node `assert` self-check, no test framework.
+- `src/history.js` — undo/redo over deep scene snapshots.
+- `test/geometry.test.mjs`, `test/history.test.mjs` — node `assert` self-checks, no
+  test framework.

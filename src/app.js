@@ -1,4 +1,5 @@
 // WebGL2 viewport, camera and scene state for the shape editor.
+import { createHistory } from './history.js';
 import {
   identity,
   multiply,
@@ -16,6 +17,11 @@ import {
   boxMesh,
   sphereMesh,
   cylinderMesh,
+  coneMesh,
+  pyramidMesh,
+  torusMesh,
+  capsuleMesh,
+  tubeMesh,
 } from './geometry.js';
 
 const canvas = document.getElementById('view');
@@ -48,7 +54,21 @@ const state = {
   selected: -1,
   camera: { theta: Math.PI / 4, phi: 1.05, distance: 12, target: [0, 0, 0] },
   drag: null,
+  snap: false,
 };
+
+const history = createHistory(state.scene);
+
+function snapshot() {
+  history.push(state.scene);
+}
+
+function applyScene(scene) {
+  state.scene.length = 0;
+  state.scene.push(...scene);
+  state.selected = scene.length ? state.scene.length - 1 : -1;
+  syncUi();
+}
 
 const VERT = `#version 300 es
 layout(location = 0) in vec3 aPos;
@@ -166,6 +186,13 @@ function registerMesh(type, mesh) {
 registerMesh('box', boxMesh());
 registerMesh('sphere', sphereMesh(32, 16));
 registerMesh('cylinder', cylinderMesh(32));
+registerMesh('cone', coneMesh(32));
+registerMesh('pyramid', pyramidMesh());
+registerMesh('torus', torusMesh(32, 16));
+registerMesh('capsule', capsuleMesh(32, 8));
+registerMesh('tube', tubeMesh(32));
+
+const SNAP = 0.5;
 gridMesh = createMesh(createGridMesh());
 
 function cameraEye() {
@@ -307,6 +334,7 @@ canvas.addEventListener('pointerdown', (event) => {
   state.selected = hit;
   syncUi();
   if (hit !== -1) {
+    snapshot();
     const ground = groundPoint(ray.origin, ray.dir);
     const shape = state.scene[hit];
     state.drag = {
@@ -345,8 +373,14 @@ canvas.addEventListener('pointermove', (event) => {
     const ground = groundPoint(ray.origin, ray.dir);
     if (ground) {
       const shape = state.scene[state.selected];
-      shape.position[0] = ground[0] + drag.offset[0];
-      shape.position[2] = ground[2] + drag.offset[2];
+      let x = ground[0] + drag.offset[0];
+      let z = ground[2] + drag.offset[2];
+      if (state.snap) {
+        x = Math.round(x / SNAP) * SNAP;
+        z = Math.round(z / SNAP) * SNAP;
+      }
+      shape.position[0] = x;
+      shape.position[2] = z;
       syncUi();
     }
   }
@@ -373,6 +407,7 @@ canvas.addEventListener(
 // --- scene operations -----------------------------------------------------
 
 export function addShape(type) {
+  snapshot();
   const [tx, , tz] = state.camera.target;
   const shape = {
     type,
@@ -389,19 +424,23 @@ export function addShape(type) {
 
 export function deleteSelected() {
   if (state.selected === -1) return;
+  snapshot();
   state.scene.splice(state.selected, 1);
   state.selected = -1;
   syncUi();
 }
 
-export function rotateSelected(delta) {
+export function rotateSelected(delta, axis = 'y') {
   if (state.selected === -1) return;
-  state.scene[state.selected].rotation[1] += delta;
+  snapshot();
+  const index = axis === 'x' ? 0 : axis === 'z' ? 2 : 1;
+  state.scene[state.selected].rotation[index] += delta;
   syncUi();
 }
 
 export function scaleSelected(factor) {
   if (state.selected === -1) return;
+  snapshot();
   const shape = state.scene[state.selected];
   shape.size = shape.size.map((v) => Math.max(0.1, v * factor));
   syncUi();
@@ -409,17 +448,72 @@ export function scaleSelected(factor) {
 
 export function colorSelected(index) {
   if (state.selected === -1 || !PALETTE[index]) return;
-  state.scene[state.selected].color = PALETTE[index];
+  snapshot();
+  state.scene[state.selected].color = PALETTE[index].slice();
+  syncUi();
+}
+
+export function duplicateSelected() {
+  if (state.selected === -1) return;
+  snapshot();
+  const source = state.scene[state.selected];
+  const half = source.size.map((v) => v / 2);
+  state.scene.push({
+    ...source,
+    position: [
+      source.position[0] + half[0],
+      source.position[1],
+      source.position[2] + half[2],
+    ],
+    rotation: source.rotation.slice(),
+    size: source.size.slice(),
+    color: source.color.slice(),
+  });
+  state.selected = state.scene.length - 1;
+  syncUi();
+}
+
+export function undo() {
+  applyScene(history.undo(state.scene));
+}
+
+export function redo() {
+  applyScene(history.redo(state.scene));
+}
+
+export function setSnap(on) {
+  state.snap = on;
+  document.getElementById('snap').textContent = `Snap: ${on ? 'on' : 'off'}`;
+}
+
+const SAVE_KEY = 'tinkercad-3d-scene';
+
+export function saveScene() {
+  localStorage.setItem(SAVE_KEY, JSON.stringify(state.scene));
+}
+
+export function loadScene() {
+  const raw = localStorage.getItem(SAVE_KEY);
+  if (!raw) return false;
+  const scene = JSON.parse(raw);
+  applyScene(scene);
+  history.reset(state.scene);
+  return true;
 }
 
 function syncUi() {
   const shape = state.selected === -1 ? null : state.scene[state.selected];
   document.getElementById('delete').disabled = shape === null;
+  document.getElementById('duplicate').disabled = shape === null;
   document.getElementById('export').disabled = state.scene.length === 0;
+  document.getElementById('undo').disabled = !history.canUndo();
+  document.getElementById('redo').disabled = !history.canRedo();
   if (shape) {
     const dims = shape.size.map((v) => v.toFixed(2)).join(' x ');
-    const deg = ((shape.rotation[1] * 180) / Math.PI).toFixed(0);
-    hint.innerHTML = `<b>${shape.type}</b> ${dims} &middot; y-rotation ${deg}&deg; &middot; R rotate, [ ] scale, 1-8 color, Delete remove`;
+    const rot = shape.rotation.map((r) => Math.round((r * 180) / Math.PI));
+    hint.innerHTML =
+      `<b>${shape.type}</b> ${dims} &middot; rotation ${rot.join('/')}&deg; ` +
+      '&middot; R/X/Z rotate, [ ] scale, 1-8 colour, Ctrl+D duplicate, Delete remove';
   } else {
     hint.textContent =
       'Drag to orbit · shift-drag to pan · wheel to zoom · click a shape to select';
@@ -428,10 +522,30 @@ function syncUi() {
 
 window.addEventListener('keydown', (event) => {
   if (event.target instanceof HTMLInputElement) return;
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+    event.preventDefault();
+    if (event.shiftKey) redo();
+    else undo();
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y') {
+    event.preventDefault();
+    redo();
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') {
+    event.preventDefault();
+    duplicateSelected();
+    return;
+  }
   if (event.key === 'Delete' || event.key === 'Backspace') {
     deleteSelected();
   } else if (event.key === 'r' || event.key === 'R') {
     rotateSelected(event.shiftKey ? -Math.PI / 12 : Math.PI / 12);
+  } else if (event.key === 'x' || event.key === 'X') {
+    rotateSelected(event.shiftKey ? -Math.PI / 12 : Math.PI / 12, 'x');
+  } else if (event.key === 'z' || event.key === 'Z') {
+    rotateSelected(event.shiftKey ? -Math.PI / 12 : Math.PI / 12, 'z');
   } else if (event.key === ']') {
     scaleSelected(1.1);
   } else if (event.key === '[') {
@@ -441,10 +555,17 @@ window.addEventListener('keydown', (event) => {
   }
 });
 
-document.getElementById('add-box').addEventListener('click', () => addShape('box'));
-document.getElementById('add-sphere').addEventListener('click', () => addShape('sphere'));
-document.getElementById('add-cylinder').addEventListener('click', () => addShape('cylinder'));
+for (const type of ['box', 'sphere', 'cylinder', 'cone', 'pyramid', 'torus', 'capsule', 'tube']) {
+  document.getElementById(`add-${type}`).addEventListener('click', () => addShape(type));
+}
+
 document.getElementById('delete').addEventListener('click', deleteSelected);
+document.getElementById('duplicate').addEventListener('click', duplicateSelected);
+document.getElementById('undo').addEventListener('click', undo);
+document.getElementById('redo').addEventListener('click', redo);
+document.getElementById('save').addEventListener('click', saveScene);
+document.getElementById('load').addEventListener('click', loadScene);
+document.getElementById('snap').addEventListener('click', () => setSnap(!state.snap));
 
 document.getElementById('export').addEventListener('click', () => {
   if (state.scene.length === 0) return;
@@ -473,6 +594,14 @@ window.__editor = {
   scaleSelected,
   colorSelected,
   registerMesh,
+  snapshot,
+  undo,
+  redo,
+  duplicateSelected,
+  setSnap,
+  saveScene,
+  loadScene,
+  history,
   stlBytes,
   exportFileName,
   PALETTE,

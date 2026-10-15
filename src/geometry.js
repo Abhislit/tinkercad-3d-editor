@@ -120,6 +120,17 @@ export function transformPoint(m, p) {
   ];
 }
 
+// Outward-facing normal of the triangle (a, b, c), used for flat facets.
+function faceNormal(a, b, c) {
+  const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const w = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+  return normalize([
+    u[1] * w[2] - u[2] * w[1],
+    u[2] * w[0] - u[0] * w[2],
+    u[0] * w[1] - u[1] * w[0],
+  ]);
+}
+
 class MeshBuilder {
   constructor() {
     this.p = [];
@@ -242,7 +253,11 @@ export function cylinderMesh(segments) {
 export function scaleFor(shape) {
   const [w, h, d] = shape.size;
   if (shape.type === 'sphere') return [w / 2, h / 2, d / 2];
-  if (shape.type === 'cylinder') return [w / 2, h, d / 2];
+  if (shape.type === 'capsule') return [w, h / CAPSULE_HEIGHT, d];
+  if (shape.type === 'torus') return [w / 2, h / (2 * TORUS_MINOR), d / 2];
+  if (shape.type === 'cone' || shape.type === 'pyramid' || shape.type === 'cylinder' || shape.type === 'tube') {
+    return [w / 2, h, d / 2];
+  }
   return [w, h, d];
 }
 
@@ -274,17 +289,30 @@ export function aabbFor(shape) {
 const SPHERE_SEGMENTS = 32;
 const SPHERE_RINGS = 16;
 const CYLINDER_SEGMENTS = 32;
+const CONE_SEGMENTS = 32;
+const TORUS_MAJOR_SEGMENTS = 32;
+const TORUS_MINOR_SEGMENTS = 16;
+const CAPSULE_SEGMENTS = 32;
+const CAPSULE_CAP_RINGS = 8;
+const TUBE_SEGMENTS = 32;
+
+const MESH_FACTORIES = {
+  box: () => boxMesh(),
+  sphere: () => sphereMesh(SPHERE_SEGMENTS, SPHERE_RINGS),
+  cylinder: () => cylinderMesh(CYLINDER_SEGMENTS),
+  cone: () => coneMesh(CONE_SEGMENTS),
+  pyramid: () => pyramidMesh(),
+  torus: () => torusMesh(TORUS_MAJOR_SEGMENTS, TORUS_MINOR_SEGMENTS),
+  capsule: () => capsuleMesh(CAPSULE_SEGMENTS, CAPSULE_CAP_RINGS),
+  tube: () => tubeMesh(TUBE_SEGMENTS),
+};
 
 const meshCache = new Map();
 function meshFor(type) {
   if (!meshCache.has(type)) {
     meshCache.set(
       type,
-      type === 'sphere'
-        ? sphereMesh(SPHERE_SEGMENTS, SPHERE_RINGS)
-        : type === 'cylinder'
-          ? cylinderMesh(CYLINDER_SEGMENTS)
-          : boxMesh(),
+      MESH_FACTORIES[type] ? MESH_FACTORIES[type]() : boxMesh(),
     );
   }
   return meshCache.get(type);
@@ -405,4 +433,200 @@ export function groundPoint(origin, dir) {
 
 export function exportFileName() {
   return 'model.stl';
+}
+
+// --- additional primitives -------------------------------------------------
+// Each is authored so that scaleFor() maps `size` onto its full extent.
+
+export const TORUS_MINOR = 0.35;
+export const CAPSULE_RADIUS = 0.5;
+export const CAPSULE_HEIGHT = 1.5; // radius 0.5 caps plus a 0.5 straight section
+export const TORUS_MAJOR = 0.65; // outer radius lands on exactly 1
+
+// Unit radius, unit height, apex at +y.
+export function coneMesh(segments) {
+  const b = new MeshBuilder();
+  const hy = 0.5;
+  const apexPos = [0, hy, 0];
+  const apex = b.vertex(apexPos, [0, 1, 0]);
+  for (let s = 0; s < segments; s++) {
+    const a0 = (s / segments) * Math.PI * 2;
+    const a1 = ((s + 1) / segments) * Math.PI * 2;
+    const n0 = [Math.cos(a0), 0, Math.sin(a0)];
+    const n1 = [Math.cos(a1), 0, Math.sin(a1)];
+    const v0 = [n0[0], -hy, n0[2]];
+    const v1 = [n1[0], -hy, n1[2]];
+    const fn = faceNormal(apexPos, v0, v1);
+    const a = b.vertex(v0, fn);
+    const c = b.vertex(v1, fn);
+    b.tri(apex, c, a);
+
+    const down = [0, -1, 0];
+    const base = b.vertex([0, -hy, 0], down);
+    const d1 = b.vertex(v0, down);
+    const d2 = b.vertex(v1, down);
+    b.tri(base, d1, d2);
+  }
+  return b.build();
+}
+
+// Square base of circumradius 1, apex at +y, height 1.
+export function pyramidMesh() {
+  const b = new MeshBuilder();
+  const hy = 0.5;
+  const ring = [0, 1, 2, 3].map((i) => {
+    const a = (i / 4) * Math.PI * 2;
+    return [Math.cos(a), 0, Math.sin(a)];
+  });
+  const apexPos = [0, hy, 0];
+  const apex = b.vertex(apexPos, [0, 1, 0]);
+  for (let s = 0; s < 4; s++) {
+    const v0 = [ring[s][0], -hy, ring[s][2]];
+    const v1 = [ring[(s + 1) % 4][0], -hy, ring[(s + 1) % 4][2]];
+    const fn = faceNormal(apexPos, v0, v1);
+    const a = b.vertex(v0, fn);
+    const c = b.vertex(v1, fn);
+    b.tri(apex, c, a);
+
+    const down = [0, -1, 0];
+    const base = b.vertex([0, -hy, 0], down);
+    const d1 = b.vertex(v0, down);
+    const d2 = b.vertex(v1, down);
+    b.tri(base, d1, d2);
+  }
+  return b.build();
+}
+
+// Outer radius 1, tube radius TORUS_MINOR, lying in the xz plane.
+export function torusMesh(majorSegments, minorSegments) {
+  const b = new MeshBuilder();
+  const grid = [];
+  for (let i = 0; i <= majorSegments; i++) {
+    const u = (i / majorSegments) * Math.PI * 2;
+    const row = [];
+    for (let j = 0; j <= minorSegments; j++) {
+      const v = (j / minorSegments) * Math.PI * 2;
+      const n = [
+        Math.cos(v) * Math.cos(u),
+        Math.sin(v),
+        Math.cos(v) * Math.sin(u),
+      ];
+      const p = [
+        (TORUS_MAJOR + TORUS_MINOR * Math.cos(v)) * Math.cos(u),
+        TORUS_MINOR * Math.sin(v),
+        (TORUS_MAJOR + TORUS_MINOR * Math.cos(v)) * Math.sin(u),
+      ];
+      row.push(b.vertex(p, n));
+    }
+    grid.push(row);
+  }
+  for (let i = 0; i < majorSegments; i++) {
+    for (let j = 0; j < minorSegments; j++) {
+      b.quad(grid[i][j], grid[i][j + 1], grid[i + 1][j + 1], grid[i + 1][j]);
+    }
+  }
+  return b.build();
+}
+
+// Radius 0.5 with hemispherical caps; built as one lathe whose profile rises
+// monotonically in y so the winding is consistent by construction.
+export function capsuleMesh(segments, capRings) {
+  const b = new MeshBuilder();
+  const r = 0.5;
+  const body = CAPSULE_HEIGHT / 2 - r; // straight section half height
+  // Profile from the bottom pole to the top pole: [radius, y, normalR, normalY].
+  const profile = [];
+  // Pole first, rim second, so the whole profile rises monotonically in y.
+  for (let i = 0; i <= capRings; i++) {
+    const t = (i / capRings) * (Math.PI / 2);
+    profile.push([r * Math.sin(t), -body - r * Math.cos(t), Math.sin(t), -Math.cos(t)]);
+  }
+  profile.push([r, body, 1, 0]);
+  for (let i = capRings; i >= 1; i--) {
+    const t = (i / capRings) * (Math.PI / 2);
+    profile.push([r * Math.sin(t), body + r * Math.cos(t), Math.sin(t), Math.cos(t)]);
+  }
+
+  const grid = [];
+  profile.forEach(([rad, y, nr, ny]) => {
+    const row = [];
+    for (let s = 0; s <= segments; s++) {
+      const phi = (s / segments) * Math.PI * 2;
+      row.push(
+        b.vertex(
+          [Math.cos(phi) * rad, y, Math.sin(phi) * rad],
+          normalize([Math.cos(phi) * nr, ny, Math.sin(phi) * nr]),
+        ),
+      );
+    }
+    grid.push(row);
+  });
+  for (let i = 0; i < profile.length - 1; i++) {
+    for (let s = 0; s < segments; s++) {
+      // Rings rise in y, so this winding is outward.
+      b.quad(grid[i][s], grid[i + 1][s], grid[i + 1][s + 1], grid[i][s + 1]);
+    }
+  }
+  return b.build();
+}
+
+// Hollow cylinder: outer radius 1, inner radius 0.6, height 1.
+export const TUBE_INNER = 0.6;
+
+export function tubeMesh(segments) {
+  const b = new MeshBuilder();
+  const hy = 0.5;
+  for (let s = 0; s < segments; s++) {
+    const a0 = (s / segments) * Math.PI * 2;
+    const a1 = ((s + 1) / segments) * Math.PI * 2;
+    const dir = (a) => [Math.cos(a), 0, Math.sin(a)];
+
+    const o0 = dir(a0);
+    const o1 = dir(a1);
+    const wall = [
+      b.vertex([o0[0], -hy, o0[2]], o0),
+      b.vertex([o0[0], hy, o0[2]], o0),
+      b.vertex([o1[0], hy, o1[2]], o1),
+      b.vertex([o1[0], -hy, o1[2]], o1),
+    ];
+    b.quad(wall[0], wall[1], wall[2], wall[3]);
+
+    const i0 = dir(a0).map((v) => v * TUBE_INNER);
+    const i1 = dir(a1).map((v) => v * TUBE_INNER);
+    const in0 = dir(a0).map((v) => -v);
+    const in1 = dir(a1).map((v) => -v);
+    const bore = [
+      b.vertex([i0[0], -hy, i0[2]], in0),
+      b.vertex([i0[0], hy, i0[2]], in0),
+      b.vertex([i1[0], hy, i1[2]], in1),
+      b.vertex([i1[0], -hy, i1[2]], in1),
+    ];
+    b.quad(bore[0], bore[3], bore[2], bore[1]);
+
+    // Annular caps: a ring quad between the outer and inner radii. Drawing
+    // these through the centre would fill the bore and cancel the volume.
+    const up = [0, 1, 0];
+    const down = [0, -1, 0];
+    b.tri(
+      b.vertex([o0[0], hy, o0[2]], up),
+      b.vertex([i1[0], hy, i1[2]], up),
+      b.vertex([o1[0], hy, o1[2]], up),
+    );
+    b.tri(
+      b.vertex([o0[0], hy, o0[2]], up),
+      b.vertex([i0[0], hy, i0[2]], up),
+      b.vertex([i1[0], hy, i1[2]], up),
+    );
+    b.tri(
+      b.vertex([o0[0], -hy, o0[2]], down),
+      b.vertex([o1[0], -hy, o1[2]], down),
+      b.vertex([i1[0], -hy, i1[2]], down),
+    );
+    b.tri(
+      b.vertex([o0[0], -hy, o0[2]], down),
+      b.vertex([i1[0], -hy, i1[2]], down),
+      b.vertex([i0[0], -hy, i0[2]], down),
+    );
+  }
+  return b.build();
 }
