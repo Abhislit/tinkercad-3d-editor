@@ -11,6 +11,7 @@ import {
   pickShape,
   groundPoint,
   scaleFor,
+  parseCoord,
   WORLD_LIMIT,
   stlBytes,
   exportFileName,
@@ -161,6 +162,37 @@ function createMesh(mesh) {
   return { vao, count: mesh.indices.length, edges, lineIndices, indices };
 }
 
+// Coloured world axes through the origin: +X red, +Y green, +Z blue. Each axis
+// is two line segments in one buffer (origin -> tip, origin -> dim stub) drawn
+// with the existing uniform colour, so no new attribute or shader is needed.
+const AXES = [
+  { tip: [3, 0, 0], stub: [-0.8, 0, 0], color: [0.92, 0.35, 0.32] },
+  { tip: [0, 3, 0], stub: [0, -0.8, 0], color: [0.45, 0.87, 0.4] },
+  { tip: [0, 0, 3], stub: [0, 0, -0.8], color: [0.35, 0.62, 0.95] },
+];
+
+function createAxesMesh() {
+  const positions = [];
+  const normals = [];
+  for (const { tip, stub } of AXES) {
+    positions.push(0, 0, 0, ...tip, 0, 0, 0, ...stub);
+    normals.push(0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0);
+  }
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  const put = (data, location) => {
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(location);
+    gl.vertexAttribPointer(location, 3, gl.FLOAT, false, 0, 0);
+  };
+  put(positions, 0);
+  put(normals, 1);
+  gl.bindVertexArray(null);
+  return { vao, vertices: positions.length / 3 };
+}
+
 function createGridMesh() {
   const half = 10;
   const step = 1;
@@ -169,15 +201,20 @@ function createGridMesh() {
     positions.push(-half, 0, i, half, 0, i);
     positions.push(i, 0, -half, i, 0, half);
   }
+  // Lines need a normal attribute too: the shader normalises vNormal, and a
+  // zero vector would normalise to NaN.
+  const up = [];
+  for (let i = 0; i < positions.length / 3; i++) up.push(0, 1, 0);
   return {
     positions: new Float32Array(positions),
-    normals: new Float32Array(positions.length),
+    normals: new Float32Array(up),
     indices: new Uint16Array(Array.from({ length: positions.length / 3 }, (_, i) => i)),
   };
 }
 
 const meshCache = new Map();
 let gridMesh = null;
+let axesMesh = null;
 
 function registerMesh(type, mesh) {
   meshCache.set(type, createMesh(mesh));
@@ -194,6 +231,7 @@ registerMesh('tube', tubeMesh(32));
 
 const SNAP = 0.5;
 gridMesh = createMesh(createGridMesh());
+axesMesh = createAxesMesh();
 
 function cameraEye() {
   const { theta, phi, distance, target } = state.camera;
@@ -250,6 +288,18 @@ function draw() {
     gl.bindVertexArray(gridMesh.vao);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gridMesh.indices);
     gl.drawElements(gl.LINES, gridMesh.count, gl.UNSIGNED_SHORT, 0);
+  }
+
+  if (axesMesh) {
+    gl.disable(gl.CULL_FACE);
+    gl.bindVertexArray(axesMesh.vao);
+    for (let i = 0; i < AXES.length; i++) {
+      const { color } = AXES[i];
+      gl.uniform3fv(uniforms.color, color);
+      gl.drawArrays(gl.LINES, i * 6, 2);
+      gl.uniform3f(uniforms.color, color[0] * 0.4, color[1] * 0.4, color[2] * 0.4);
+      gl.drawArrays(gl.LINES, i * 6 + 2, 2);
+    }
   }
 
   gl.enable(gl.CULL_FACE);
@@ -501,12 +551,38 @@ export function loadScene() {
   return true;
 }
 
+const coordInputs = [0, 1, 2].map((i) => document.getElementById(['pos-x', 'pos-y', 'pos-z'][i]));
+let editingCoord = false;
+
+for (const [axis, input] of coordInputs.entries()) {
+  input.addEventListener('change', () => {
+    if (state.selected === -1) return;
+    const shape = state.scene[state.selected];
+    const value = parseCoord(input.value, shape.position[axis]);
+    if (value === shape.position[axis]) return;
+    snapshot();
+    shape.position[axis] = value;
+    syncUi();
+  });
+  input.addEventListener('focus', () => {
+    editingCoord = true;
+  });
+  input.addEventListener('blur', () => {
+    editingCoord = false;
+  });
+}
+
 function syncUi() {
   const shape = state.selected === -1 ? null : state.scene[state.selected];
   document.getElementById('delete').disabled = shape === null;
   document.getElementById('duplicate').disabled = shape === null;
   document.getElementById('export').disabled = state.scene.length === 0;
   document.getElementById('undo').disabled = !history.canUndo();
+  for (const [axis, input] of coordInputs.entries()) {
+    input.disabled = shape === null;
+    // Do not fight the user while they are typing into a field.
+    if (!editingCoord) input.value = shape === null ? '' : shape.position[axis].toFixed(2);
+  }
   document.getElementById('redo').disabled = !history.canRedo();
   if (shape) {
     const dims = shape.size.map((v) => v.toFixed(2)).join(' x ');

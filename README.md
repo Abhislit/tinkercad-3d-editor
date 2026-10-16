@@ -34,6 +34,7 @@ A real HTTP origin is required — ES modules do not load over `file://`.
 | Duplicate | `Ctrl+D` |
 | Undo / redo | `Ctrl+Z` / `Ctrl+Shift+Z` (also `Ctrl+Y`) |
 | Add shape | any of the eight primitive buttons |
+| Exact position | the X / Y / Z number fields — arrow keys step by 0.5 |
 | Snap to grid | `Snap` button — drag positions snap to 0.5 |
 | Save / load | `Save` / `Load` — stores the scene in localStorage |
 | Export | Export STL |
@@ -47,6 +48,14 @@ node test/geometry.test.mjs && node test/history.test.mjs
 Covers the matrix helpers (including the 4x4 inverse used by ray picking), every
 primitive's tessellation, signed volume and winding direction, world-space bounds,
 ray picking, the STL byte layout, and the undo/redo stack.
+
+## Axes
+
+The viewport draws the world axes through the origin — +X red, +Y green, +Z blue,
+each three units long with a dim negative stub. The X/Y/Z fields under the canvas
+show the selected shape's exact position and accept typed values; they step by 0.5
+with the arrow keys and fall back to the current value on anything non-numeric, so
+a stray keystroke cannot push NaN into the render or the STL.
 
 ## Layout
 

@@ -41,6 +41,27 @@
   }
   #stage { position: relative; flex: 1; min-height: 0; }
   canvas { display: block; width: 100%; height: 100%; }
+  #coords {
+    display: flex;
+    gap: 10px;
+    padding: 5px 10px;
+    background: #171a20;
+    border-top: 1px solid #2b2f38;
+  }
+  #coords label { color: #99a1b0; display: flex; align-items: center; gap: 5px; }
+  #coords input {
+    width: 82px;
+    background: #262a33;
+    color: #e7e9ee;
+    border: 1px solid #363b46;
+    border-radius: 5px;
+    padding: 3px 6px;
+    font: inherit;
+  }
+  #coords input:disabled { opacity: 0.45; }
+  #coords label:nth-child(1) input { border-left: 3px solid #eb5b52; }
+  #coords label:nth-child(2) input { border-left: 3px solid #73de66; }
+  #coords label:nth-child(3) input { border-left: 3px solid #599ef2; }
   #hint {
     padding: 6px 10px;
     background: #1d2027;
@@ -93,6 +114,11 @@
   <div id="stage">
     <canvas id="view"></canvas>
     <div id="gl-error">WebGL2 is unavailable in this browser, so the 3D viewport cannot start.</div>
+  </div>
+  <div id="coords">
+    <label>X <input id="pos-x" type="number" step="0.5" disabled></label>
+    <label>Y <input id="pos-y" type="number" step="0.5" disabled></label>
+    <label>Z <input id="pos-z" type="number" step="0.5" disabled></label>
   </div>
   <div id="hint">Drag to orbit &middot; shift-drag to pan &middot; wheel to zoom &middot; click a shape to select</div>
   <script type="module" src="./src/app.js"></script>

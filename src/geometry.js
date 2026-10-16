@@ -630,3 +630,14 @@ export function tubeMesh(segments) {
   }
   return b.build();
 }
+
+// Number inputs accept anything; fall back rather than poisoning a shape with
+// NaN, which would silently delete it from the render and the STL.
+export function parseCoord(raw, fallback) {
+  if (raw === null || raw === undefined) return fallback;
+  const text = String(raw).trim();
+  // Number('') is 0, so an empty field has to be rejected explicitly.
+  if (text === '') return fallback;
+  const value = Number(text);
+  return Number.isFinite(value) ? value : fallback;
+}

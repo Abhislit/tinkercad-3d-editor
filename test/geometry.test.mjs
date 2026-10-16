@@ -21,6 +21,7 @@ import {
   sceneTriangles,
   stlBytes,
   exportFileName,
+  parseCoord,
 } from '../src/geometry.js';
 
 let failures = 0;
@@ -415,6 +416,18 @@ check('a cylinder of size 2 x 3 x 4 measures 2 x 3 x 4', () => {
 check('groundPoint refuses an intersection past the world limit', () => {
   assert.equal(groundPoint([0, 2, 0], [0, -0.001, -1]), null);
   assert.deepEqual(groundPoint([0, 2, 0], [0, -1, -0.05]), [0, 0, -0.1]);
+});
+
+check('parseCoord reads a plain number', () => {
+  assert.equal(parseCoord('3', 0), 3);
+  assert.equal(parseCoord('-2.5', 0), -2.5);
+  assert.equal(parseCoord(' 4 ', 0), 4);
+});
+
+check('parseCoord falls back on anything that is not a finite number', () => {
+  for (const raw of ['', '   ', 'abc', 'NaN', 'Infinity', '1e999', undefined, null]) {
+    assert.equal(parseCoord(raw, 7), 7, `raw was ${JSON.stringify(raw)}`);
+  }
 });
 
 check('the download name is model.stl', () => {
