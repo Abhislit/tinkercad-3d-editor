@@ -10,8 +10,11 @@ import {
   transformPoint,
   pickShape,
   groundPoint,
+  aabbFor,
   scaleFor,
   parseCoord,
+  parseStl,
+  frameDistance,
   WORLD_LIMIT,
   stlBytes,
   exportFileName,
@@ -220,6 +223,14 @@ function registerMesh(type, mesh) {
   meshCache.set(type, createMesh(mesh));
 }
 
+// An imported part keeps its own mesh; register one under a unique key.
+let importSerial = 0;
+function importMesh(mesh) {
+  const key = `import-${importSerial++}`;
+  meshCache.set(key, createMesh(mesh));
+  return key;
+}
+
 registerMesh('box', boxMesh());
 registerMesh('sphere', sphereMesh(32, 16));
 registerMesh('cylinder', cylinderMesh(32));
@@ -306,7 +317,7 @@ function draw() {
   gl.cullFace(gl.BACK);
   for (let i = 0; i < state.scene.length; i++) {
     const shape = state.scene[i];
-    const mesh = meshCache.get(shape.type);
+    const mesh = meshCache.get(shape.meshKey ?? shape.type);
     if (!mesh) continue;
     const model = compose(shape.position, shape.rotation, scaleFor(shape));
     gl.uniformMatrix4fv(uniforms.model, false, model);
@@ -552,6 +563,8 @@ export function loadScene() {
 }
 
 const coordInputs = [0, 1, 2].map((i) => document.getElementById(['pos-x', 'pos-y', 'pos-z'][i]));
+const rotInputs = [0, 1, 2].map((i) => document.getElementById(['rot-x', 'rot-y', 'rot-z'][i]));
+const sizeInputs = [0, 1, 2].map((i) => document.getElementById(['size-x', 'size-y', 'size-z'][i]));
 let editingCoord = false;
 
 for (const [axis, input] of coordInputs.entries()) {
@@ -572,6 +585,59 @@ for (const [axis, input] of coordInputs.entries()) {
   });
 }
 
+for (const [axis, input] of rotInputs.entries()) {
+  input.addEventListener('change', () => {
+    if (state.selected === -1) return;
+    const shape = state.scene[state.selected];
+    const degrees = parseCoord(input.value, (shape.rotation[axis] * 180) / Math.PI);
+    snapshot();
+    shape.rotation[axis] = (degrees * Math.PI) / 180;
+    syncUi();
+  });
+}
+
+for (const [axis, input] of sizeInputs.entries()) {
+  input.addEventListener('change', () => {
+    if (state.selected === -1) return;
+    const shape = state.scene[state.selected];
+    const value = Math.max(0.1, parseCoord(input.value, shape.size[axis]));
+    if (value === shape.size[axis]) return;
+    snapshot();
+    shape.size[axis] = value;
+    syncUi();
+  });
+}
+
+// Jump the camera so the selected shape fills the view.
+export function frameSelected() {
+  if (state.selected === -1) return;
+  const { min, max } = aabbFor(state.scene[state.selected]);
+  const centre = [0, 1, 2].map((a) => (min[a] + max[a]) / 2);
+  const radius = Math.hypot(...[0, 1, 2].map((a) => (max[a] - min[a]) / 2));
+  state.camera.target = centre;
+  state.camera.distance = frameDistance(radius, Math.PI / 4);
+}
+
+export async function importStl(file) {
+  const buffer = await file.arrayBuffer();
+  const mesh = parseStl(buffer);
+  if (!mesh) return false;
+  snapshot();
+  state.scene.push({
+    type: 'mesh',
+    meshKey: importMesh(mesh),
+    position: [0, 0, 0],
+    rotation: [0, 0, 0],
+    size: [1, 1, 1],
+    color: [0.85, 0.87, 0.9],
+    importedSize: [mesh.max[0] - mesh.min[0], mesh.max[1] - mesh.min[1], mesh.max[2] - mesh.min[2]],
+  });
+  state.selected = state.scene.length - 1;
+  frameSelected();
+  syncUi();
+  return true;
+}
+
 function syncUi() {
   const shape = state.selected === -1 ? null : state.scene[state.selected];
   document.getElementById('delete').disabled = shape === null;
@@ -583,13 +649,26 @@ function syncUi() {
     // Do not fight the user while they are typing into a field.
     if (!editingCoord) input.value = shape === null ? '' : shape.position[axis].toFixed(2);
   }
+  for (const [axis, input] of rotInputs.entries()) {
+    input.disabled = shape === null;
+    if (!editingCoord) {
+      input.value = shape === null ? '' : Math.round((shape.rotation[axis] * 180) / Math.PI);
+    }
+  }
+  for (const [axis, input] of sizeInputs.entries()) {
+    input.disabled = shape === null;
+    if (!editingCoord) input.value = shape === null ? '' : shape.size[axis].toFixed(2);
+  }
   document.getElementById('redo').disabled = !history.canRedo();
   if (shape) {
     const dims = shape.size.map((v) => v.toFixed(2)).join(' x ');
     const rot = shape.rotation.map((r) => Math.round((r * 180) / Math.PI));
     hint.innerHTML =
       `<b>${shape.type}</b> ${dims} &middot; rotation ${rot.join('/')}&deg; ` +
-      '&middot; R/X/Z rotate, [ ] scale, 1-8 colour, Ctrl+D duplicate, Delete remove';
+      (shape.type === 'mesh'
+        ? ` &middot; imported ${shape.importedSize.map((v) => v.toFixed(1)).join(' x ')}`
+        : '') +
+      '&middot; F frame, R/X/Z rotate, [ ] scale, 1-8 colour, Ctrl+D duplicate';
   } else {
     hint.textContent =
       'Drag to orbit · shift-drag to pan · wheel to zoom · click a shape to select';
@@ -616,6 +695,8 @@ window.addEventListener('keydown', (event) => {
   }
   if (event.key === 'Delete' || event.key === 'Backspace') {
     deleteSelected();
+  } else if (event.key === 'f' || event.key === 'F') {
+    frameSelected();
   } else if (event.key === 'r' || event.key === 'R') {
     rotateSelected(event.shiftKey ? -Math.PI / 12 : Math.PI / 12);
   } else if (event.key === 'x' || event.key === 'X') {
@@ -642,6 +723,14 @@ document.getElementById('redo').addEventListener('click', redo);
 document.getElementById('save').addEventListener('click', saveScene);
 document.getElementById('load').addEventListener('click', loadScene);
 document.getElementById('snap').addEventListener('click', () => setSnap(!state.snap));
+
+const fileInput = document.getElementById('file');
+document.getElementById('import').addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', async () => {
+  const file = fileInput.files && fileInput.files[0];
+  if (file) await importStl(file);
+  fileInput.value = '';
+});
 
 document.getElementById('export').addEventListener('click', () => {
   if (state.scene.length === 0) return;
@@ -678,6 +767,9 @@ window.__editor = {
   saveScene,
   loadScene,
   history,
+  frameSelected,
+  importStl,
+  parseStl,
   stlBytes,
   exportFileName,
   PALETTE,

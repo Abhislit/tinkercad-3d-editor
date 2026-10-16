@@ -34,6 +34,8 @@ A real HTTP origin is required — ES modules do not load over `file://`.
 | Duplicate | `Ctrl+D` |
 | Undo / redo | `Ctrl+Z` / `Ctrl+Shift+Z` (also `Ctrl+Y`) |
 | Add shape | any of the eight primitive buttons |
+| Import | `Import STL` — binary or ASCII, centred on the origin, real units kept |
+| Frame selection | `F` |
 | Exact position | the X / Y / Z number fields — arrow keys step by 0.5 |
 | Snap to grid | `Snap` button — drag positions snap to 0.5 |
 | Save / load | `Save` / `Load` — stores the scene in localStorage |
@@ -48,6 +50,15 @@ node test/geometry.test.mjs && node test/history.test.mjs
 Covers the matrix helpers (including the 4x4 inverse used by ray picking), every
 primitive's tessellation, signed volume and winding direction, world-space bounds,
 ray picking, the STL byte layout, and the undo/redo stack.
+
+## STL import
+
+`Import STL` reads binary and ASCII STL. The part is centred on the origin so
+rotation turns it about its own middle, and it keeps its original units — the
+`size` fields then act as a scale multiplier rather than silently resizing the
+model. Imported files cannot be trusted to carry usable normals, so flat normals
+are recomputed from the triangle winding. Anything that is not recognisably STL is
+rejected instead of imported as garbage.
 
 ## Axes
 

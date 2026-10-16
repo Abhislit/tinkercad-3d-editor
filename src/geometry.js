@@ -263,9 +263,12 @@ export function scaleFor(shape) {
 
 // World-space bounds of the shape as it is actually drawn and exported.
 export function aabbFor(shape) {
-  // Every primitive ends up exactly `size` across once scaleFor is applied,
-  // so the world-space bound is always size / 2.
-  const half = [shape.size[0] / 2, shape.size[1] / 2, shape.size[2] / 2];
+  // Every primitive ends up exactly `size` across once scaleFor is applied.
+  // An imported mesh keeps its own units and treats `size` as a scale factor.
+  const extent = shape.importedSize
+    ? shape.importedSize.map((v, a) => v * shape.size[a])
+    : shape.size;
+  const half = [extent[0] / 2, extent[1] / 2, extent[2] / 2];
   const rot = compose([0, 0, 0], shape.rotation, [1, 1, 1]);
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
@@ -640,4 +643,100 @@ export function parseCoord(raw, fallback) {
   if (text === '') return fallback;
   const value = Number(text);
   return Number.isFinite(value) ? value : fallback;
+}
+
+// --- STL import ------------------------------------------------------------
+
+// Reads binary or ASCII STL and returns a mesh centred on the origin, so that
+// rotation happens about the part's middle rather than a far off corner.
+// Returns null for anything unrecognised rather than importing garbage.
+export function parseStl(buffer) {
+  if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < 15) return null;
+  const view = new DataView(buffer);
+  const bytes = new Uint8Array(buffer);
+
+  let count;
+  let readVertex;
+  if (buffer.byteLength >= 84) {
+    count = view.getUint32(80, true);
+    if (84 + 50 * count === buffer.byteLength) {
+      // Facets are 50 bytes each and start at byte 84: a 12 byte normal then
+      // 9 floats. Vertex index i is global, so recover its facet first.
+      readVertex = (i) => {
+        const o = 84 + Math.floor(i / 3) * 50 + 12 + (i % 3) * 12;
+        return [
+          view.getFloat32(o, true),
+          view.getFloat32(o + 4, true),
+          view.getFloat32(o + 8, true),
+        ];
+      };
+    }
+  }
+  if (!readVertex) {
+    // ASCII: "solid" up front, "vertex x y z" lines after it.
+    const text = new TextDecoder().decode(bytes);
+    if (!/^\s*solid/i.test(text)) return null;
+    const found = text.match(/vertex\s+(-?[\d.eE+-]+)\s+(-?[\d.eE+-]+)\s+(-?[\d.eE+-]+)/g);
+    if (!found || found.length % 3 !== 0) return null;
+    const values = found.map((line) =>
+      line.split(/\s+/).slice(1).map(Number),
+    );
+    count = values.length / 3;
+    readVertex = (i) => values[i];
+  }
+  if (!count) return null;
+
+  const raw = [];
+  for (let t = 0; t < count; t++) {
+    for (let k = 0; k < 3; k++) raw.push(readVertex(t * 3 + k));
+  }
+
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  for (const [x, y, z] of raw) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return null;
+    for (let a = 0; a < 3; a++) {
+      const v = [x, y, z][a];
+      if (v < min[a]) min[a] = v;
+      if (v > max[a]) max[a] = v;
+    }
+  }
+  const centre = [0, 1, 2].map((a) => (min[a] + max[a]) / 2);
+
+  const positions = new Float32Array(raw.length * 3); // 3 floats per vertex
+  raw.forEach(([x, y, z], i) => {
+    positions[i * 3] = x - centre[0];
+    positions[i * 3 + 1] = y - centre[1];
+    positions[i * 3 + 2] = z - centre[2];
+  });
+
+  // Flat normals from the triangle winding: imported files cannot be trusted
+  // to carry usable normals.
+  const normals = new Float32Array(raw.length * 3);
+  for (let t = 0; t < count; t++) {
+    const o = t * 9;
+    const a = [positions[o], positions[o + 1], positions[o + 2]];
+    const b = [positions[o + 3], positions[o + 4], positions[o + 5]];
+    const c = [positions[o + 6], positions[o + 7], positions[o + 8]];
+    const n = faceNormal(a, b, c);
+    for (let k = 0; k < 3; k++) {
+      normals[o + k * 3] = n[0];
+      normals[o + k * 3 + 1] = n[1];
+      normals[o + k * 3 + 2] = n[2];
+    }
+  }
+
+  return {
+    positions,
+    normals,
+    indices: Uint16Array.from({ length: count * 3 }, (_, i) => i),
+    min: min.map((v, a) => v - centre[a]),
+    max: max.map((v, a) => v - centre[a]),
+  };
+}
+
+// Camera distance that exactly fits a bounding sphere of `radius`.
+export function frameDistance(radius, fovY) {
+  const needed = radius / Math.tan(fovY / 2);
+  return Math.min(200, Math.max(2, needed * 1.2));
 }

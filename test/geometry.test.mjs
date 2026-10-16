@@ -22,6 +22,8 @@ import {
   stlBytes,
   exportFileName,
   parseCoord,
+  parseStl,
+  frameDistance,
 } from '../src/geometry.js';
 
 let failures = 0;
@@ -428,6 +430,73 @@ check('parseCoord falls back on anything that is not a finite number', () => {
   for (const raw of ['', '   ', 'abc', 'NaN', 'Infinity', '1e999', undefined, null]) {
     assert.equal(parseCoord(raw, 7), 7, `raw was ${JSON.stringify(raw)}`);
   }
+});
+
+const unitBoxScene = [atOrigin('box')];
+
+check('a binary STL round trips through the parser', () => {
+  const exported = stlBytes(unitBoxScene);
+  const mesh = parseStl(exported);
+  assert.equal(triangleCount(mesh), triangleCount(boxMesh()));
+  assert.ok(Math.abs(meshVolume(mesh, [1, 1, 1]) - 1) < 1e-4, 'volume changed on round trip');
+});
+
+check('an imported mesh is centred on the origin', () => {
+  const far = [{
+    type: 'box',
+    position: [100, 50, -20],
+    rotation: [0, 0, 0],
+    size: [4, 4, 4],
+    color: [1, 1, 1],
+  }];
+  const { positions, min, max } = parseStl(stlBytes(far));
+  assert.ok(Math.abs(min[0] + max[0]) < 1e-4, `x centre ${(min[0] + max[0]) / 2}`);
+  assert.ok(Math.abs(min[1] + max[1]) < 1e-4, `y centre ${(min[1] + max[1]) / 2}`);
+  assert.ok(Math.abs(min[2] + max[2]) < 1e-4, `z centre ${(min[2] + max[2]) / 2}`);
+  assert.ok(positions.length > 0);
+});
+
+check('an ASCII STL parses', () => {
+  const text = ['solid s', 'facet normal 0 0 1', '  outer loop',
+    '    vertex 0 0 0', '    vertex 1 0 0', '    vertex 0 1 0', '  endloop', 'endfacet',
+    'endsolid s'].join('\n');
+  const bytes = new TextEncoder().encode(text);
+  const mesh = parseStl(bytes.buffer);
+  assert.equal(triangleCount(mesh), 1);
+});
+
+check('a malformed STL is rejected rather than silently imported', () => {
+  assert.equal(parseStl(new ArrayBuffer(12)), null);
+  assert.equal(parseStl(null), null);
+});
+
+check('parsed triangles are wound outward', () => {
+  assert.equal(inwardTriangles(parseStl(stlBytes(unitBoxScene))), 0);
+});
+
+check('aabb of an imported mesh uses its real size, not the scale', () => {
+  const shape = {
+    type: 'mesh',
+    position: [3, 0, 0],
+    rotation: [0, 0, 0],
+    size: [2, 2, 2],
+    importedSize: [10, 20, 30],
+    color: [1, 1, 1],
+  };
+  const bb = aabbFor(shape);
+  assert.ok(Math.abs(bb.max[0] - bb.min[0] - 20) < 1e-5, `x extent ${bb.max[0] - bb.min[0]}`);
+  assert.ok(Math.abs(bb.max[1] - bb.min[1] - 40) < 1e-5, `y extent ${bb.max[1] - bb.min[1]}`);
+  assert.ok(Math.abs(bb.min[0] - (3 - 10)) < 1e-5, `x centre ${bb.min[0]}`);
+});
+
+check('frameDistance keeps the bounding sphere inside the frustum', () => {
+  const fov = Math.PI / 4;
+  const d = frameDistance(3, fov);
+  const fit = Math.tan(fov / 2) * d;
+  assert.ok(fit >= 3 - 1e-9, `radius does not fit: ${fit} < 3`);
+  assert.ok(fit <= 3 * 1.25, `excessive margin: ${fit}`);
+  assert.ok(frameDistance(1000, fov) <= 200, 'clamped to the far plane');
+  assert.ok(frameDistance(0.001, fov) >= 2, 'clamped to the near limit');
 });
 
 check('the download name is model.stl', () => {
