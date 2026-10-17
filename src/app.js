@@ -11,6 +11,9 @@ import {
   pickShape,
   groundPoint,
   aabbFor,
+  alignAxis,
+  distributeAxis,
+  AXIS_INDEX,
   scaleFor,
   parseCoord,
   parseStl,
@@ -561,6 +564,31 @@ export function duplicateSelected() {
   syncUi();
 }
 
+export function alignSelected(mode, axis) {
+  if (state.selection.length < 2) return;
+  snapshot();
+  const bounds = state.selection.map((i) => aabbFor(state.scene[i]));
+  const deltas = alignAxis(bounds, axis, mode);
+  const a = AXIS_INDEX[axis];
+  state.selection.forEach((index, k) => {
+    state.scene[index].position[a] += deltas[k];
+  });
+  syncUi();
+}
+
+export function distributeSelected(axis) {
+  if (state.selection.length < 3) return;
+  snapshot();
+  const bounds = state.selection.map((i) => aabbFor(state.scene[i]));
+  const centres = bounds.map((b) => (b.min[AXIS_INDEX[axis]] + b.max[AXIS_INDEX[axis]]) / 2);
+  const spaced = distributeAxis(centres);
+  const a = AXIS_INDEX[axis];
+  state.selection.forEach((index, k) => {
+    state.scene[index].position[a] += spaced[k] - centres[k];
+  });
+  syncUi();
+}
+
 export function undo() {
   applyScene(history.undo(state.scene));
 }
@@ -669,6 +697,8 @@ function syncUi() {
   const shape = state.selected === -1 ? null : state.scene[state.selected];
   document.getElementById('delete').disabled = shape === null;
   document.getElementById('duplicate').disabled = shape === null;
+  for (const button of alignButtons) button.disabled = state.selection.length < 2;
+  for (const button of distributeButtons) button.disabled = state.selection.length < 3;
   document.getElementById('export').disabled = state.scene.length === 0;
   document.getElementById('undo').disabled = !history.canUndo();
   for (const [axis, input] of coordInputs.entries()) {
@@ -755,6 +785,16 @@ document.getElementById('save').addEventListener('click', saveScene);
 document.getElementById('load').addEventListener('click', loadScene);
 document.getElementById('snap').addEventListener('click', () => setSnap(!state.snap));
 
+const alignButtons = document.querySelectorAll('[data-align]');
+for (const button of alignButtons) {
+  const [mode, axis] = button.dataset.align.split(':');
+  button.addEventListener('click', () => alignSelected(mode, axis));
+}
+const distributeButtons = document.querySelectorAll('[data-distribute]');
+for (const button of distributeButtons) {
+  button.addEventListener('click', () => distributeSelected(button.dataset.distribute));
+}
+
 const fileInput = document.getElementById('file');
 document.getElementById('import').addEventListener('click', () => fileInput.click());
 fileInput.addEventListener('change', async () => {
@@ -796,6 +836,8 @@ window.__editor = {
   undo,
   redo,
   duplicateSelected,
+  alignSelected,
+  distributeSelected,
   setSnap,
   saveScene,
   loadScene,

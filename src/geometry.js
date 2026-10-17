@@ -290,7 +290,7 @@ export function aabbFor(shape) {
   };
 }
 
-const AXIS_INDEX = { x: 0, y: 1, z: 2 };
+export const AXIS_INDEX = { x: 0, y: 1, z: 2 };
 
 // Per-shape position deltas that bring every world AABB to a shared edge or
 // centre on one axis. `bounds` are aabbFor results; `mode` is min|centre|max.
