@@ -28,6 +28,7 @@ import {
   tubeMesh,
 } from './geometry.js';
 import { resolveMesh, serializeShape, reviveShape, toPlainMesh, indexArrayType } from './meshstore.js';
+import { toggleSelection, primaryIndex, hasIndex } from './selection.js';
 
 const canvas = document.getElementById('view');
 const hint = document.getElementById('hint');
@@ -56,7 +57,10 @@ const PALETTE = [
 
 const state = {
   scene: [],
-  selected: -1,
+  selection: [],
+  get selected() {
+    return primaryIndex(this.selection);
+  },
   camera: { theta: Math.PI / 4, phi: 1.05, distance: 12, target: [0, 0, 0] },
   drag: null,
   snap: false,
@@ -71,7 +75,7 @@ function snapshot() {
 function applyScene(scene) {
   state.scene.length = 0;
   state.scene.push(...scene);
-  state.selected = scene.length ? state.scene.length - 1 : -1;
+  state.selection = scene.length ? [state.scene.length - 1] : [];
   syncUi();
 }
 
@@ -338,7 +342,7 @@ function draw() {
     gl.drawElements(gl.TRIANGLES, mesh.count, mesh.indexType, 0);
 
     // Selection outline: same mesh as wireframe on top of the shaded solid.
-    if (i === state.selected) {
+    if (hasIndex(state.selection, i)) {
       gl.disable(gl.CULL_FACE);
       gl.uniform3f(uniforms.color, 1, 1, 1);
       const grown = compose(
@@ -402,7 +406,15 @@ canvas.addEventListener('pointerdown', (event) => {
     return;
   }
   const hit = pickShape(ray.origin, ray.dir, state.scene, pickTolerance);
-  state.selected = hit;
+  if (event.ctrlKey || event.metaKey) {
+    // Modify-click toggles set membership and never starts a drag.
+    if (hit !== -1) {
+      state.selection = toggleSelection(state.selection, hit);
+      syncUi();
+    }
+    return;
+  }
+  state.selection = hit === -1 ? [] : [hit];
   syncUi();
   if (hit !== -1) {
     snapshot();
@@ -488,16 +500,17 @@ export function addShape(type) {
     color: PALETTE[state.scene.length % PALETTE.length],
   };
   state.scene.push(shape);
-  state.selected = state.scene.length - 1;
+  state.selection = [state.scene.length - 1];
   syncUi();
   return shape;
 }
 
 export function deleteSelected() {
-  if (state.selected === -1) return;
+  if (state.selection.length === 0) return;
   snapshot();
-  state.scene.splice(state.selected, 1);
-  state.selected = -1;
+  const doomed = state.selection.slice().sort((a, b) => b - a);
+  for (const index of doomed) state.scene.splice(index, 1);
+  state.selection = [];
   syncUi();
 }
 
@@ -525,22 +538,26 @@ export function colorSelected(index) {
 }
 
 export function duplicateSelected() {
-  if (state.selected === -1) return;
+  if (state.selection.length === 0) return;
   snapshot();
-  const source = state.scene[state.selected];
-  const half = source.size.map((v) => v / 2);
-  state.scene.push({
-    ...source,
-    position: [
-      source.position[0] + half[0],
-      source.position[1],
-      source.position[2] + half[2],
-    ],
-    rotation: source.rotation.slice(),
-    size: source.size.slice(),
-    color: source.color.slice(),
+  const copies = state.selection.map((index) => {
+    const source = state.scene[index];
+    const half = source.size.map((v) => v / 2);
+    return {
+      ...source,
+      position: [
+        source.position[0] + half[0],
+        source.position[1],
+        source.position[2] + half[2],
+      ],
+      rotation: source.rotation.slice(),
+      size: source.size.slice(),
+      color: source.color.slice(),
+    };
   });
-  state.selected = state.scene.length - 1;
+  const base = state.scene.length;
+  state.scene.push(...copies);
+  state.selection = copies.map((_, offset) => base + offset);
   syncUi();
 }
 
@@ -642,7 +659,7 @@ export async function importStl(file) {
     color: [0.85, 0.87, 0.9],
     importedSize: [mesh.max[0] - mesh.min[0], mesh.max[1] - mesh.min[1], mesh.max[2] - mesh.min[2]],
   });
-  state.selected = state.scene.length - 1;
+  state.selection = [state.scene.length - 1];
   frameSelected();
   syncUi();
   return true;
@@ -670,7 +687,11 @@ function syncUi() {
     if (!editingCoord) input.value = shape === null ? '' : shape.size[axis].toFixed(2);
   }
   document.getElementById('redo').disabled = !history.canRedo();
-  if (shape) {
+  if (state.selection.length > 1) {
+    hint.innerHTML =
+      `<b>${state.selection.length} selected</b> &middot; ` +
+      'F frame, R/X/Z rotate, [ ] scale, 1-8 colour, Ctrl+D duplicate, Del delete';
+  } else if (shape) {
     const dims = shape.size.map((v) => v.toFixed(2)).join(' x ');
     const rot = shape.rotation.map((r) => Math.round((r * 180) / Math.PI));
     hint.innerHTML =
@@ -762,6 +783,9 @@ window.__editor = {
   scene: state.scene,
   get selected() {
     return state.selected;
+  },
+  get selection() {
+    return state.selection.slice();
   },
   addShape,
   deleteSelected,
