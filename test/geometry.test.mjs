@@ -29,6 +29,7 @@ import {
   backToFront,
   hexToRgb,
   rgbToHex,
+  scrubValue,
 } from '../src/geometry.js';
 
 let failures = 0;
@@ -640,6 +641,19 @@ check('rgbToHex inverts hexToRgb', () => {
   for (const hex of ['#e8503a', '#000000', '#ffffff', '#3aa8e8', '#7a5ce8']) {
     assert.equal(rgbToHex(hexToRgb(hex)), hex);
   }
+});
+
+check('scrubValue moves in whole field steps scaled to the drag', () => {
+  assert.equal(scrubValue(1, 0, 0.5), 1);
+  assert.equal(scrubValue(1, 4, 0.5), 1.5);
+  assert.equal(scrubValue(1, -4, 0.5), 0.5);
+  assert.equal(scrubValue(0, 12, 15), 45);
+  assert.equal(scrubValue(-30, 8, 15), 0);
+});
+
+check('scrubValue is symmetric and independent of the base', () => {
+  assert.equal(scrubValue(0, 4, 1) - scrubValue(0, -4, 1), 2);
+  assert.equal(scrubValue(100, 4, 1), 101);
 });
 
 if (failures) {

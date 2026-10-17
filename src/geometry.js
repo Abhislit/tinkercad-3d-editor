@@ -707,6 +707,12 @@ export function parseCoord(raw, fallback) {
   return Number.isFinite(value) ? value : fallback;
 }
 
+// Drag-scrub value for a number field: every 4 px of horizontal drag is one
+// whole field step, so the readout stays on round numbers.
+export function scrubValue(base, dx, step) {
+  return base + Math.round(dx / 4) * step;
+}
+
 // --- STL import ------------------------------------------------------------
 
 // Reads binary or ASCII STL and returns a mesh centred on the origin, so that

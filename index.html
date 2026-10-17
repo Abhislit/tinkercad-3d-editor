@@ -153,10 +153,16 @@
     <label>Rot X <input id="rot-x" type="number" step="15" disabled></label>
     <label>Rot Y <input id="rot-y" type="number" step="15" disabled></label>
     <label>Rot Z <input id="rot-z" type="number" step="15" disabled></label>
+    <label>Step <select id="rot-step">
+      <option value="5">5&deg;</option>
+      <option value="15" selected>15&deg;</option>
+      <option value="45">45&deg;</option>
+    </select></label>
     <span class="sep"></span>
     <label>Size X <input id="size-x" type="number" step="0.1" min="0.1" disabled></label>
     <label>Size Y <input id="size-y" type="number" step="0.1" min="0.1" disabled></label>
     <label>Size Z <input id="size-z" type="number" step="0.1" min="0.1" disabled></label>
+    <label><input id="uniform" type="checkbox"> Uniform</label>
   </div>
   <div id="hint">Drag to orbit &middot; shift-drag to pan &middot; wheel to zoom &middot; click a shape to select</div>
   <script type="module" src="./src/app.js"></script>

@@ -19,6 +19,7 @@ import {
   AXIS_INDEX,
   scaleFor,
   parseCoord,
+  scrubValue,
   parseStl,
   frameDistance,
   WORLD_LIMIT,
@@ -71,6 +72,7 @@ const state = {
   camera: { theta: Math.PI / 4, phi: 1.05, distance: 12, target: [0, 0, 0] },
   drag: null,
   snap: false,
+  rotStep: 15,
 };
 
 const history = createHistory(state.scene);
@@ -665,6 +667,8 @@ const sizeInputs = [0, 1, 2].map((i) => document.getElementById(['size-x', 'size
 const colorInput = document.getElementById('color');
 const opacityInput = document.getElementById('opacity');
 const nameInput = document.getElementById('name');
+const rotStepInput = document.getElementById('rot-step');
+const uniformInput = document.getElementById('uniform');
 let editingCoord = false;
 
 for (const [axis, input] of coordInputs.entries()) {
@@ -701,12 +705,66 @@ for (const [axis, input] of sizeInputs.entries()) {
     if (state.selected === -1) return;
     const shape = state.scene[state.selected];
     const value = Math.max(0.1, parseCoord(input.value, shape.size[axis]));
-    if (value === shape.size[axis]) return;
-    snapshot();
-    shape.size[axis] = value;
+    if (uniformInput.checked) {
+      if (shape.size.every((v) => v === value)) return;
+      snapshot();
+      shape.size = [value, value, value];
+    } else {
+      if (value === shape.size[axis]) return;
+      snapshot();
+      shape.size[axis] = value;
+    }
     syncUi();
   });
 }
+
+const rotIncrement = () => (state.rotStep * Math.PI) / 180;
+
+rotStepInput.addEventListener('change', () => {
+  state.rotStep = Number(rotStepInput.value) || 15;
+  for (const input of rotInputs) input.step = state.rotStep;
+});
+
+// Drag across a number field to scrub it; a plain click still focuses and
+// types. The commit dispatches `change` so the field's own handler runs once,
+// which keeps one undo step per drag.
+// ponytail: scrub moves in whole field steps; typed arbitrary values still work.
+function wireScrub(input) {
+  let pointer = null;
+  let startX = 0;
+  let base = 0;
+  let step = 1;
+  let moved = false;
+  input.addEventListener('pointerdown', (event) => {
+    if (input.disabled || event.button !== 0) return;
+    event.preventDefault();
+    input.setPointerCapture(event.pointerId);
+    pointer = event.pointerId;
+    startX = event.clientX;
+    base = parseCoord(input.value, 0);
+    step = Number(input.step) || 1;
+    moved = false;
+  });
+  input.addEventListener('pointermove', (event) => {
+    if (event.pointerId !== pointer) return;
+    const dx = event.clientX - startX;
+    if (!moved && Math.abs(dx) < 4) return;
+    moved = true;
+    input.value = String(scrubValue(base, dx, step));
+  });
+  input.addEventListener('pointerup', (event) => {
+    if (event.pointerId !== pointer) return;
+    pointer = null;
+    if (moved) input.dispatchEvent(new Event('change'));
+    else input.focus();
+  });
+  input.addEventListener('pointercancel', () => {
+    pointer = null;
+    moved = false;
+  });
+}
+
+for (const input of [...coordInputs, ...rotInputs, ...sizeInputs]) wireScrub(input);
 
 // One snapshot per settled change; the equality guard keeps re-picking the
 // same value out of the undo history.
@@ -847,11 +905,11 @@ window.addEventListener('keydown', (event) => {
   } else if (event.key === 'f' || event.key === 'F') {
     frameSelected();
   } else if (event.key === 'r' || event.key === 'R') {
-    rotateSelected(event.shiftKey ? -Math.PI / 12 : Math.PI / 12);
+    rotateSelected(event.shiftKey ? -rotIncrement() : rotIncrement());
   } else if (event.key === 'x' || event.key === 'X') {
-    rotateSelected(event.shiftKey ? -Math.PI / 12 : Math.PI / 12, 'x');
+    rotateSelected(event.shiftKey ? -rotIncrement() : rotIncrement(), 'x');
   } else if (event.key === 'z' || event.key === 'Z') {
-    rotateSelected(event.shiftKey ? -Math.PI / 12 : Math.PI / 12, 'z');
+    rotateSelected(event.shiftKey ? -rotIncrement() : rotIncrement(), 'z');
   } else if (event.key === ']') {
     scaleSelected(1.1);
   } else if (event.key === '[') {
