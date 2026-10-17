@@ -27,7 +27,7 @@ import {
   capsuleMesh,
   tubeMesh,
 } from './geometry.js';
-import { resolveMesh, serializeShape, reviveShape, toPlainMesh } from './meshstore.js';
+import { resolveMesh, serializeShape, reviveShape, toPlainMesh, indexArrayType } from './meshstore.js';
 
 const canvas = document.getElementById('view');
 const hint = document.getElementById('hint');
@@ -137,7 +137,8 @@ function createMesh(mesh) {
   // coerce to the typed arrays WebGL uploads here, at the GPU boundary.
   const posData = Float32Array.from(mesh.positions);
   const normalData = Float32Array.from(mesh.normals);
-  const indexData = Uint16Array.from(mesh.indices);
+  const IndexType = indexArrayType(posData.length / 3);
+  const indexData = IndexType.from(mesh.indices);
 
   const vao = gl.createVertexArray();
   gl.bindVertexArray(vao);
@@ -159,7 +160,7 @@ function createMesh(mesh) {
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexData, gl.STATIC_DRAW);
 
   // Same triangles read as edges, for the selection outline.
-  const edges = new Uint16Array((indexData.length / 3) * 6);
+  const edges = new IndexType((indexData.length / 3) * 6);
   for (let t = 0; t < indexData.length / 3; t++) {
     const [a, b, c] = [indexData[t * 3], indexData[t * 3 + 1], indexData[t * 3 + 2]];
     edges.set([a, b, b, c, c, a], t * 6);
@@ -169,7 +170,8 @@ function createMesh(mesh) {
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, edges, gl.STATIC_DRAW);
 
   gl.bindVertexArray(null);
-  return { vao, count: indexData.length, edges, lineIndices, indices };
+  const indexType = IndexType === Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
+  return { vao, count: indexData.length, edges, lineIndices, indices, indexType };
 }
 
 // Coloured world axes through the origin: +X red, +Y green, +Z blue. Each axis
@@ -333,7 +335,7 @@ function draw() {
     gl.uniform3fv(uniforms.color, shape.color);
     gl.bindVertexArray(mesh.vao);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.indices);
-    gl.drawElements(gl.TRIANGLES, mesh.count, gl.UNSIGNED_SHORT, 0);
+    gl.drawElements(gl.TRIANGLES, mesh.count, mesh.indexType, 0);
 
     // Selection outline: same mesh as wireframe on top of the shaded solid.
     if (i === state.selected) {
@@ -347,7 +349,7 @@ function draw() {
       gl.uniformMatrix4fv(uniforms.model, false, grown);
       gl.uniformMatrix3fv(uniforms.normalMat, false, normalMatrixOf(grown));
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.lineIndices);
-      gl.drawElements(gl.LINES, mesh.edges.length, gl.UNSIGNED_SHORT, 0);
+      gl.drawElements(gl.LINES, mesh.edges.length, mesh.indexType, 0);
       gl.enable(gl.CULL_FACE);
     }
   }

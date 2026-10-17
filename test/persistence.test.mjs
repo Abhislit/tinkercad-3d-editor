@@ -3,6 +3,7 @@ import {
   resolveMesh,
   serializeShape,
   reviveShape,
+  indexArrayType,
 } from '../src/meshstore.js';
 
 let failures = 0;
@@ -64,6 +65,16 @@ check('serializeShape leaves meshless shapes unchanged', () => {
   const shape = { type: 'box', position: [0, 0, 0] };
   assert.deepEqual(serializeShape(shape), shape);
   assert.deepEqual(reviveShape(shape), shape);
+});
+
+check('indexArrayType stays 16-bit up to the 65535 vertex cap', () => {
+  assert.equal(indexArrayType(3), Uint16Array);
+  assert.equal(indexArrayType(65535), Uint16Array);
+});
+
+check('indexArrayType widens to 32-bit above the cap', () => {
+  assert.equal(indexArrayType(65536), Uint32Array);
+  assert.equal(indexArrayType(100000), Uint32Array);
 });
 
 console.log(failures ? `\n${failures} failing` : '\nall passed');

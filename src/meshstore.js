@@ -34,3 +34,9 @@ export function serializeShape(shape) {
 export function reviveShape(shape) {
   return shape.mesh ? { ...shape, mesh: toPlainMesh(shape.mesh) } : shape;
 }
+
+// A 16-bit index buffer tops out at 65535 vertices; CSG output can exceed that,
+// so pick the index type the vertex count actually needs (both are WebGL2-legal).
+export function indexArrayType(vertexCount) {
+  return vertexCount <= 65535 ? Uint16Array : Uint32Array;
+}
