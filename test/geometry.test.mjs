@@ -27,6 +27,8 @@ import {
   alignAxis,
   distributeAxis,
   backToFront,
+  hexToRgb,
+  rgbToHex,
 } from '../src/geometry.js';
 
 let failures = 0;
@@ -622,6 +624,22 @@ check('backToFront returns farthest shapes first, without mutating input', () =>
 check('backToFront keeps original order for equal distances', () => {
   const shapes = [{ position: [2, 0, 0] }, { position: [-2, 0, 0] }];
   assert.deepEqual(backToFront(shapes, [0, 0, 0]).map((s) => s.position[0]), [2, -2]);
+});
+
+check('hexToRgb scales a hex triplet to unit floats', () => {
+  assert.deepEqual(hexToRgb('#e8503a'), [232 / 255, 80 / 255, 58 / 255]);
+});
+
+check('rgbToHex rounds, clamps and pads', () => {
+  assert.equal(rgbToHex([1, 0, 0]), '#ff0000');
+  assert.equal(rgbToHex([0, 0, 0]), '#000000');
+  assert.equal(rgbToHex([2, -1, 0.5]), '#ff0080');
+});
+
+check('rgbToHex inverts hexToRgb', () => {
+  for (const hex of ['#e8503a', '#000000', '#ffffff', '#3aa8e8', '#7a5ce8']) {
+    assert.equal(rgbToHex(hexToRgb(hex)), hex);
+  }
 });
 
 if (failures) {

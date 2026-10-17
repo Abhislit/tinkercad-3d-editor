@@ -39,6 +39,13 @@
     width: 20px; height: 20px; padding: 0;
     border-radius: 5px; border: 1px solid #0006;
   }
+  #toolbar label { color: #99a1b0; display: flex; align-items: center; gap: 5px; }
+  #toolbar input[type="color"] {
+    width: 26px; height: 24px; padding: 0;
+    border: 1px solid #363b46; border-radius: 5px;
+    background: #262a33; cursor: pointer;
+  }
+  #toolbar input[type="range"] { width: 90px; accent-color: #599ef2; }
   #stage { position: relative; flex: 1; min-height: 0; }
   canvas { display: block; width: 100%; height: 100%; }
   #coords {
@@ -100,6 +107,8 @@
     <button class="swatch" data-color="5" style="background:#7a5ce8" title="6"></button>
     <button class="swatch" data-color="6" style="background:#e85ca8" title="7"></button>
     <button class="swatch" data-color="7" style="background:#d8dde6" title="8"></button>
+    <label>Colour <input id="color" type="color" value="#e8503a" disabled></label>
+    <label>Opacity <input id="opacity" type="range" min="0" max="1" step="0.05" value="1" disabled></label>
     <span class="sep"></span>
     <button id="delete" disabled>Delete</button>
     <button id="duplicate" disabled>Duplicate</button>
@@ -137,6 +146,7 @@
     <label>X <input id="pos-x" type="number" step="0.5" disabled></label>
     <label>Y <input id="pos-y" type="number" step="0.5" disabled></label>
     <label>Z <input id="pos-z" type="number" step="0.5" disabled></label>
+    <label>Name <input id="name" type="text" disabled></label>
   </div>
   <div id="coords" class="second">
     <label>Rot X <input id="rot-x" type="number" step="15" disabled></label>

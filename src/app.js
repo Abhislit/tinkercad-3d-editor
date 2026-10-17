@@ -14,6 +14,8 @@ import {
   alignAxis,
   distributeAxis,
   backToFront,
+  hexToRgb,
+  rgbToHex,
   AXIS_INDEX,
   scaleFor,
   parseCoord,
@@ -559,9 +561,9 @@ export function scaleSelected(factor) {
 }
 
 export function colorSelected(index) {
-  if (state.selected === -1 || !PALETTE[index]) return;
+  if (state.selection.length === 0 || !PALETTE[index]) return;
   snapshot();
-  state.scene[state.selected].color = PALETTE[index].slice();
+  for (const i of state.selection) state.scene[i].color = PALETTE[index].slice();
   syncUi();
 }
 
@@ -642,9 +644,16 @@ export function loadScene() {
   return true;
 }
 
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
 const coordInputs = [0, 1, 2].map((i) => document.getElementById(['pos-x', 'pos-y', 'pos-z'][i]));
 const rotInputs = [0, 1, 2].map((i) => document.getElementById(['rot-x', 'rot-y', 'rot-z'][i]));
 const sizeInputs = [0, 1, 2].map((i) => document.getElementById(['size-x', 'size-y', 'size-z'][i]));
+const colorInput = document.getElementById('color');
+const opacityInput = document.getElementById('opacity');
+const nameInput = document.getElementById('name');
 let editingCoord = false;
 
 for (const [axis, input] of coordInputs.entries()) {
@@ -687,6 +696,41 @@ for (const [axis, input] of sizeInputs.entries()) {
     syncUi();
   });
 }
+
+// One snapshot per settled change; the equality guard keeps re-picking the
+// same value out of the undo history.
+colorInput.addEventListener('change', () => {
+  if (state.selection.length === 0) return;
+  if (state.selection.every((i) => rgbToHex(state.scene[i].color) === colorInput.value)) return;
+  snapshot();
+  const rgb = hexToRgb(colorInput.value);
+  for (const i of state.selection) state.scene[i].color = rgb.slice();
+  syncUi();
+});
+
+opacityInput.addEventListener('change', () => {
+  if (state.selection.length === 0) return;
+  const value = Math.min(1, Math.max(0, Number(opacityInput.value)));
+  if (state.selection.every((i) => (state.scene[i].opacity ?? 1) === value)) return;
+  snapshot();
+  for (const i of state.selection) state.scene[i].opacity = value;
+  syncUi();
+});
+
+nameInput.addEventListener('change', () => {
+  if (state.selection.length === 0) return;
+  const value = nameInput.value;
+  if (state.selection.every((i) => (state.scene[i].name ?? '') === value)) return;
+  snapshot();
+  for (const i of state.selection) state.scene[i].name = value;
+  syncUi();
+});
+nameInput.addEventListener('focus', () => {
+  editingCoord = true;
+});
+nameInput.addEventListener('blur', () => {
+  editingCoord = false;
+});
 
 // Jump the camera so the selected shape fills the view.
 export function frameSelected() {
@@ -741,6 +785,14 @@ function syncUi() {
     input.disabled = shape === null;
     if (!editingCoord) input.value = shape === null ? '' : shape.size[axis].toFixed(2);
   }
+  colorInput.disabled = opacityInput.disabled = nameInput.disabled = shape === null;
+  if (shape) {
+    colorInput.value = rgbToHex(shape.color);
+    opacityInput.value = String(shape.opacity ?? 1);
+    if (!editingCoord) nameInput.value = shape.name ?? '';
+  } else if (!editingCoord) {
+    nameInput.value = '';
+  }
   document.getElementById('redo').disabled = !history.canRedo();
   if (state.selection.length > 1) {
     hint.innerHTML =
@@ -750,7 +802,7 @@ function syncUi() {
     const dims = shape.size.map((v) => v.toFixed(2)).join(' x ');
     const rot = shape.rotation.map((r) => Math.round((r * 180) / Math.PI));
     hint.innerHTML =
-      `<b>${shape.type}</b> ${dims} &middot; rotation ${rot.join('/')}&deg; ` +
+      `<b>${shape.name ? escapeHtml(shape.name) : shape.type}</b> ${dims} &middot; rotation ${rot.join('/')}&deg; ` +
       (shape.type === 'mesh'
         ? ` &middot; imported ${shape.importedSize.map((v) => v.toFixed(1)).join(' x ')}`
         : '') +

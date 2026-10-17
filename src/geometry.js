@@ -338,6 +338,19 @@ export function backToFront(shapes, eye) {
     .map((entry) => entry.shape);
 }
 
+// '#rrggbb' -> [r, g, b] floats in 0..1, for WebGL uniforms.
+export function hexToRgb(hex) {
+  const v = parseInt(hex.slice(1), 16);
+  return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255];
+}
+
+// [r, g, b] floats -> lowercase '#rrggbb', matching <input type="color">.
+export function rgbToHex(rgb) {
+  const part = (v) =>
+    Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, '0');
+  return '#' + rgb.map(part).join('');
+}
+
 const SPHERE_SEGMENTS = 32;
 const SPHERE_RINGS = 16;
 const CYLINDER_SEGMENTS = 32;
