@@ -324,6 +324,20 @@ export function distributeAxis(centres) {
   return out;
 }
 
+// A new array of the shapes ordered farthest-first from the eye, so blended
+// translucent shapes draw over nearer ones. Ties keep their original order.
+export function backToFront(shapes, eye) {
+  return shapes
+    .map((shape, index) => {
+      const dx = shape.position[0] - eye[0];
+      const dy = shape.position[1] - eye[1];
+      const dz = shape.position[2] - eye[2];
+      return { shape, index, d2: dx * dx + dy * dy + dz * dz };
+    })
+    .sort((a, b) => b.d2 - a.d2 || a.index - b.index)
+    .map((entry) => entry.shape);
+}
+
 const SPHERE_SEGMENTS = 32;
 const SPHERE_RINGS = 16;
 const CYLINDER_SEGMENTS = 32;

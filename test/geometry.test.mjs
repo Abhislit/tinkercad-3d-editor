@@ -26,6 +26,7 @@ import {
   frameDistance,
   alignAxis,
   distributeAxis,
+  backToFront,
 } from '../src/geometry.js';
 
 let failures = 0;
@@ -604,6 +605,23 @@ check('distributeAxis keeps original order for equal centres', () => {
   // Stable: the two 5s keep array order rather than swapping.
   assert.deepEqual(distributeAxis([5, 5, 10]), [5, 7.5, 10]);
   assert.deepEqual(distributeAxis([10, 5, 5]), [10, 5, 7.5]);
+});
+
+check('backToFront returns farthest shapes first, without mutating input', () => {
+  const shapes = [
+    { position: [10, 0, 0] },
+    { position: [1, 0, 0] },
+    { position: [5, 0, 0] },
+  ];
+  const sorted = backToFront(shapes, [0, 0, 0]);
+  assert.deepEqual(sorted.map((s) => s.position[0]), [10, 5, 1]);
+  assert.notEqual(sorted, shapes);
+  assert.equal(shapes[0].position[0], 10, 'input array order is untouched');
+});
+
+check('backToFront keeps original order for equal distances', () => {
+  const shapes = [{ position: [2, 0, 0] }, { position: [-2, 0, 0] }];
+  assert.deepEqual(backToFront(shapes, [0, 0, 0]).map((s) => s.position[0]), [2, -2]);
 });
 
 if (failures) {

@@ -13,6 +13,7 @@ import {
   aabbFor,
   alignAxis,
   distributeAxis,
+  backToFront,
   AXIS_INDEX,
   scaleFor,
   parseCoord,
@@ -102,6 +103,7 @@ precision mediump float;
 in vec3 vNormal;
 in vec3 vPos;
 uniform vec3 uColor;
+uniform float uAlpha;
 out vec4 fragColor;
 void main() {
   vec3 n = normalize(vNormal);
@@ -110,7 +112,7 @@ void main() {
   vec3 viewDir = normalize(-vPos);
   float rim = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
   vec3 shaded = uColor * (0.25 + 0.75 * lambert) + vec3(rim) * 0.35;
-  fragColor = vec4(shaded, 1.0);
+  fragColor = vec4(shaded, uAlpha);
 }`;
 
 function compile(type, source) {
@@ -137,6 +139,7 @@ const uniforms = {
   viewProj: gl.getUniformLocation(program, 'uViewProj'),
   normalMat: gl.getUniformLocation(program, 'uNormalMat'),
   color: gl.getUniformLocation(program, 'uColor'),
+  alpha: gl.getUniformLocation(program, 'uAlpha'),
 };
 
 function createMesh(mesh) {
@@ -305,6 +308,7 @@ function draw() {
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
   const viewProj = viewProjection();
+  gl.uniform1f(uniforms.alpha, 1);
 
   if (gridMesh) {
     gl.useProgram(program);
@@ -332,20 +336,21 @@ function draw() {
 
   gl.enable(gl.CULL_FACE);
   gl.cullFace(gl.BACK);
-  for (let i = 0; i < state.scene.length; i++) {
-    const shape = state.scene[i];
+
+  const drawShape = (shape, index, alpha) => {
     const mesh = meshFor(shape);
-    if (!mesh) continue;
+    if (!mesh) return;
     const model = compose(shape.position, shape.rotation, scaleFor(shape));
     gl.uniformMatrix4fv(uniforms.model, false, model);
     gl.uniformMatrix3fv(uniforms.normalMat, false, normalMatrixOf(model));
     gl.uniform3fv(uniforms.color, shape.color);
+    gl.uniform1f(uniforms.alpha, alpha);
     gl.bindVertexArray(mesh.vao);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.indices);
     gl.drawElements(gl.TRIANGLES, mesh.count, mesh.indexType, 0);
 
     // Selection outline: same mesh as wireframe on top of the shaded solid.
-    if (hasIndex(state.selection, i)) {
+    if (hasIndex(state.selection, index)) {
       gl.disable(gl.CULL_FACE);
       gl.uniform3f(uniforms.color, 1, 1, 1);
       const grown = compose(
@@ -359,6 +364,26 @@ function draw() {
       gl.drawElements(gl.LINES, mesh.edges.length, mesh.indexType, 0);
       gl.enable(gl.CULL_FACE);
     }
+  };
+
+  const translucent = [];
+  for (let i = 0; i < state.scene.length; i++) {
+    const shape = state.scene[i];
+    const alpha = shape.opacity ?? 1;
+    if (alpha >= 1) drawShape(shape, i, 1);
+    else translucent.push(shape);
+  }
+
+  if (translucent.length) {
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.depthMask(false);
+    // ponytail: per-shape sort, not per-triangle; intersecting translucent shapes can show ordering artifacts.
+    for (const shape of backToFront(translucent, cameraEye())) {
+      drawShape(shape, state.scene.indexOf(shape), shape.opacity ?? 1);
+    }
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
   }
   gl.bindVertexArray(null);
   requestAnimationFrame(draw);
