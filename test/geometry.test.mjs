@@ -24,6 +24,8 @@ import {
   parseCoord,
   parseStl,
   frameDistance,
+  alignAxis,
+  distributeAxis,
 } from '../src/geometry.js';
 
 let failures = 0;
@@ -558,6 +560,50 @@ check('every primitive is wound outward', () => {
   for (const mesh of [boxMesh(), sphereMesh(16, 8), cylinderMesh(16)]) {
     assert.equal(inwardTriangles(mesh), 0);
   }
+});
+
+function bound(min, max) {
+  return { min: [min, 0, 0], max: [max, 0, 0] };
+}
+
+check('alignAxis min moves every shape to the lowest edge', () => {
+  const deltas = alignAxis([bound(0, 2), bound(10, 12)], 'x', 'min');
+  assert.deepEqual(deltas, [0, -10]);
+});
+
+check('alignAxis max moves every shape to the highest edge', () => {
+  const deltas = alignAxis([bound(0, 2), bound(10, 12)], 'x', 'max');
+  assert.deepEqual(deltas, [10, 0]);
+});
+
+check('alignAxis centre moves every shape to the combined-bounds centre', () => {
+  // combined bounds span 0..12, centre 6; shape centres are 1 and 11.
+  const deltas = alignAxis([bound(0, 2), bound(10, 12)], 'x', 'centre');
+  assert.deepEqual(deltas, [5, -5]);
+});
+
+check('alignAxis reads the requested axis', () => {
+  const a = { min: [0, 0, 0], max: [2, 5, 9] };
+  const b = { min: [10, 10, 10], max: [12, 20, 30] };
+  assert.deepEqual(alignAxis([a, b], 'z', 'min'), [0, -10]);
+  assert.deepEqual(alignAxis([a, b], 'y', 'max'), [15, 0]);
+});
+
+check('distributeAxis fixes the extremes and spaces the rest evenly', () => {
+  assert.deepEqual(distributeAxis([0, 1, 9]), [0, 4.5, 9]);
+  assert.deepEqual(distributeAxis([0, 5, 20]), [0, 10, 20]);
+});
+
+check('distributeAxis is a no-op below three shapes', () => {
+  assert.deepEqual(distributeAxis([0, 10]), [0, 10]);
+  assert.deepEqual(distributeAxis([7]), [7]);
+  assert.deepEqual(distributeAxis([]), []);
+});
+
+check('distributeAxis keeps original order for equal centres', () => {
+  // Stable: the two 5s keep array order rather than swapping.
+  assert.deepEqual(distributeAxis([5, 5, 10]), [5, 7.5, 10]);
+  assert.deepEqual(distributeAxis([10, 5, 5]), [10, 5, 7.5]);
 });
 
 if (failures) {

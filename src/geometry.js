@@ -289,6 +289,41 @@ export function aabbFor(shape) {
     max: max.map((v, a) => v + shape.position[a]),
   };
 }
+
+const AXIS_INDEX = { x: 0, y: 1, z: 2 };
+
+// Per-shape position deltas that bring every world AABB to a shared edge or
+// centre on one axis. `bounds` are aabbFor results; `mode` is min|centre|max.
+export function alignAxis(bounds, axis, mode) {
+  const a = AXIS_INDEX[axis];
+  const lows = bounds.map((b) => b.min[a]);
+  const highs = bounds.map((b) => b.max[a]);
+  const target =
+    mode === 'min' ? Math.min(...lows)
+      : mode === 'max' ? Math.max(...highs)
+        : (Math.min(...lows) + Math.max(...highs)) / 2;
+  return bounds.map((b) => {
+    const edge = mode === 'min' ? b.min[a] : mode === 'max' ? b.max[a] : (b.min[a] + b.max[a]) / 2;
+    return target - edge;
+  });
+}
+
+// New centres evenly spaced between the current extremes, which stay put.
+// Below three shapes there is nothing to redistribute; ties keep array order.
+export function distributeAxis(centres) {
+  const n = centres.length;
+  if (n < 3) return centres.slice();
+  const order = centres
+    .map((value, index) => [value, index])
+    .sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+  const step = (order[n - 1][0] - order[0][0]) / (n - 1);
+  const out = centres.slice();
+  order.forEach(([, index], rank) => {
+    out[index] = order[0][0] + step * rank;
+  });
+  return out;
+}
+
 const SPHERE_SEGMENTS = 32;
 const SPHERE_RINGS = 16;
 const CYLINDER_SEGMENTS = 32;
