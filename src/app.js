@@ -77,6 +77,16 @@ const history = createHistory(state.scene);
 
 function snapshot() {
   history.push(state.scene);
+  scheduleAutosave();
+}
+
+// ponytail: debounce coalesces rapid edits; storage failures must never break editing.
+let autosaveTimer = 0;
+function scheduleAutosave() {
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => {
+    try { saveScene(); } catch { /* quota or corrupt existing value */ }
+  }, 500);
 }
 
 function applyScene(scene) {
@@ -940,3 +950,6 @@ window.__editor = {
   PALETTE,
   syncUi,
 };
+
+// Restore the last autosaved scene on boot; same path as the Load button.
+try { loadScene(); } catch { /* ignore unreadable autosave */ }
