@@ -27,6 +27,7 @@ import {
   capsuleMesh,
   tubeMesh,
 } from './geometry.js';
+import { resolveMesh, serializeShape, reviveShape, toPlainMesh } from './meshstore.js';
 
 const canvas = document.getElementById('view');
 const hint = document.getElementById('hint');
@@ -132,29 +133,35 @@ const uniforms = {
 };
 
 function createMesh(mesh) {
+  // Shapes carry plain arrays so history/save JSON round-trips are lossless;
+  // coerce to the typed arrays WebGL uploads here, at the GPU boundary.
+  const posData = Float32Array.from(mesh.positions);
+  const normalData = Float32Array.from(mesh.normals);
+  const indexData = Uint16Array.from(mesh.indices);
+
   const vao = gl.createVertexArray();
   gl.bindVertexArray(vao);
 
   const positions = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, positions);
-  gl.bufferData(gl.ARRAY_BUFFER, mesh.positions, gl.STATIC_DRAW);
+  gl.bufferData(gl.ARRAY_BUFFER, posData, gl.STATIC_DRAW);
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
 
   const normals = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, normals);
-  gl.bufferData(gl.ARRAY_BUFFER, mesh.normals, gl.STATIC_DRAW);
+  gl.bufferData(gl.ARRAY_BUFFER, normalData, gl.STATIC_DRAW);
   gl.enableVertexAttribArray(1);
   gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
 
   const indices = gl.createBuffer();
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indices);
-  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.STATIC_DRAW);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexData, gl.STATIC_DRAW);
 
   // Same triangles read as edges, for the selection outline.
-  const edges = new Uint16Array((mesh.indices.length / 3) * 6);
-  for (let t = 0; t < mesh.indices.length / 3; t++) {
-    const [a, b, c] = [mesh.indices[t * 3], mesh.indices[t * 3 + 1], mesh.indices[t * 3 + 2]];
+  const edges = new Uint16Array((indexData.length / 3) * 6);
+  for (let t = 0; t < indexData.length / 3; t++) {
+    const [a, b, c] = [indexData[t * 3], indexData[t * 3 + 1], indexData[t * 3 + 2]];
     edges.set([a, b, b, c, c, a], t * 6);
   }
   const lineIndices = gl.createBuffer();
@@ -162,7 +169,7 @@ function createMesh(mesh) {
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, edges, gl.STATIC_DRAW);
 
   gl.bindVertexArray(null);
-  return { vao, count: mesh.indices.length, edges, lineIndices, indices };
+  return { vao, count: indexData.length, edges, lineIndices, indices };
 }
 
 // Coloured world axes through the origin: +X red, +Y green, +Z blue. Each axis
@@ -215,30 +222,31 @@ function createGridMesh() {
   };
 }
 
-const meshCache = new Map();
+// Primitives are a fixed set shared by every instance, so their GPU buffers
+// are built once and keyed by type. Imported and grouped shapes carry their
+// own mesh on the shape (shape.mesh) and get buffers lazily via resolveMesh.
+const primitiveGpu = new Map();
 let gridMesh = null;
 let axesMesh = null;
 
-function registerMesh(type, mesh) {
-  meshCache.set(type, createMesh(mesh));
+function meshFor(shape) {
+  if (shape.mesh) return resolveMesh(shape, createMesh);
+  return primitiveGpu.get(shape.type);
 }
 
-// An imported part keeps its own mesh; register one under a unique key.
-let importSerial = 0;
-function importMesh(mesh) {
-  const key = `import-${importSerial++}`;
-  meshCache.set(key, createMesh(mesh));
-  return key;
+const PRIMITIVES = {
+  box: boxMesh(),
+  sphere: sphereMesh(32, 16),
+  cylinder: cylinderMesh(32),
+  cone: coneMesh(32),
+  pyramid: pyramidMesh(),
+  torus: torusMesh(32, 16),
+  capsule: capsuleMesh(32, 8),
+  tube: tubeMesh(32),
+};
+for (const [type, source] of Object.entries(PRIMITIVES)) {
+  primitiveGpu.set(type, createMesh(source));
 }
-
-registerMesh('box', boxMesh());
-registerMesh('sphere', sphereMesh(32, 16));
-registerMesh('cylinder', cylinderMesh(32));
-registerMesh('cone', coneMesh(32));
-registerMesh('pyramid', pyramidMesh());
-registerMesh('torus', torusMesh(32, 16));
-registerMesh('capsule', capsuleMesh(32, 8));
-registerMesh('tube', tubeMesh(32));
 
 const SNAP = 0.5;
 gridMesh = createMesh(createGridMesh());
@@ -317,7 +325,7 @@ function draw() {
   gl.cullFace(gl.BACK);
   for (let i = 0; i < state.scene.length; i++) {
     const shape = state.scene[i];
-    const mesh = meshCache.get(shape.meshKey ?? shape.type);
+    const mesh = meshFor(shape);
     if (!mesh) continue;
     const model = compose(shape.position, shape.rotation, scaleFor(shape));
     gl.uniformMatrix4fv(uniforms.model, false, model);
@@ -550,13 +558,13 @@ export function setSnap(on) {
 const SAVE_KEY = 'tinkercad-3d-scene';
 
 export function saveScene() {
-  localStorage.setItem(SAVE_KEY, JSON.stringify(state.scene));
+  localStorage.setItem(SAVE_KEY, JSON.stringify(state.scene.map(serializeShape)));
 }
 
 export function loadScene() {
   const raw = localStorage.getItem(SAVE_KEY);
   if (!raw) return false;
-  const scene = JSON.parse(raw);
+  const scene = JSON.parse(raw).map(reviveShape);
   applyScene(scene);
   history.reset(state.scene);
   return true;
@@ -625,7 +633,7 @@ export async function importStl(file) {
   snapshot();
   state.scene.push({
     type: 'mesh',
-    meshKey: importMesh(mesh),
+    mesh: toPlainMesh(mesh),
     position: [0, 0, 0],
     rotation: [0, 0, 0],
     size: [1, 1, 1],
@@ -758,7 +766,6 @@ window.__editor = {
   rotateSelected,
   scaleSelected,
   colorSelected,
-  registerMesh,
   snapshot,
   undo,
   redo,
