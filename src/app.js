@@ -40,7 +40,8 @@ const canvas = document.getElementById('view');
 const hint = document.getElementById('hint');
 const glError = document.getElementById('gl-error');
 
-const gl = canvas.getContext('webgl2', { antialias: true });
+// ponytail: always-on preserveDrawingBuffer; small permanent draw cost, simplest reliable capture.
+const gl = canvas.getContext('webgl2', { antialias: true, preserveDrawingBuffer: true });
 if (!gl) {
   glError.style.display = 'grid';
   throw new Error('WebGL2 unavailable');
@@ -889,6 +890,18 @@ document.getElementById('export').addEventListener('click', () => {
   link.download = exportFileName();
   link.click();
   URL.revokeObjectURL(url);
+});
+document.getElementById('png').addEventListener('click', () => {
+  if (!gl) return;
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = exportFileName().replace(/\.stl$/, '.png');
+    link.click();
+    URL.revokeObjectURL(url);
+  });
 });
 for (const swatch of document.querySelectorAll('.swatch')) {
   swatch.addEventListener('click', () => colorSelected(Number(swatch.dataset.color)));
