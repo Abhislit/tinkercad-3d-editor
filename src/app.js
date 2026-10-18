@@ -36,6 +36,7 @@ import {
 } from './geometry.js';
 import { resolveMesh, serializeShape, reviveShape, toPlainMesh, indexArrayType } from './meshstore.js';
 import { toggleSelection, primaryIndex, hasIndex } from './selection.js';
+import { union, subtract, meshToTriangles, trianglesToMesh } from './csg.js';
 
 const canvas = document.getElementById('view');
 const hint = document.getElementById('hint');
@@ -629,6 +630,124 @@ export function distributeSelected(axis) {
   syncUi();
 }
 
+// --- group / holes (BSP CSG) ----------------------------------------------
+
+// CPU mesh data for a shape: primitives come from the shared PRIMITIVES table,
+// imported and grouped shapes carry their own mesh on the shape.
+function cpuMeshFor(shape) {
+  return shape.mesh ? shape.mesh : PRIMITIVES[shape.type];
+}
+
+// World-space triangle soup for a shape, applying its model matrix so
+// position/rotation/size are baked in.
+function shapeSoup(shape) {
+  const mesh = cpuMeshFor(shape);
+  const m = compose(shape.position, shape.rotation, scaleFor(shape));
+  return meshToTriangles(mesh).map((tri) => tri.map((p) => transformPoint(m, p)));
+}
+
+function soupBounds(soup) {
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  for (const tri of soup) {
+    for (const p of tri) {
+      for (let a = 0; a < 3; a++) {
+        if (p[a] < min[a]) min[a] = p[a];
+        if (p[a] > max[a]) max[a] = p[a];
+      }
+    }
+  }
+  return { min, max };
+}
+
+export function groupSelected() {
+  if (state.selection.length === 0) return;
+  const sources = state.selection.map((i) => state.scene[i]);
+  const solids = sources.filter((s) => !s.isHole);
+  const holes = sources.filter((s) => s.isHole);
+  if (solids.length === 0) {
+    hint.innerHTML = 'Group needs at least one solid; the selection is all holes.';
+    return;
+  }
+
+  let result;
+  try {
+    // Union holes first so overlapping holes behave as one cutter.
+    result = solids.map(shapeSoup).reduce((a, b) => union(a, b));
+    if (holes.length) {
+      const cutter = holes.map(shapeSoup).reduce((a, b) => union(a, b));
+      result = subtract(result, cutter);
+    }
+  } catch {
+    // Fallback: never lose the originals on a boolean failure.
+    hint.innerHTML = 'Group failed; the shapes were left unchanged.';
+    return;
+  }
+  if (result.length === 0) {
+    hint.innerHTML = 'Group produced an empty shape; nothing was changed.';
+    return;
+  }
+
+  // BSP output is in world space. Recentre it on its own bounds centre and
+  // hand that centre back as `position`, so the identity model matrix does not
+  // apply the offset twice.
+  const { min, max } = soupBounds(result);
+  const centre = [0, 1, 2].map((a) => (min[a] + max[a]) / 2);
+  const recentred = result.map((tri) =>
+    tri.map((p) => [p[0] - centre[0], p[1] - centre[1], p[2] - centre[2]]),
+  );
+  const mesh = trianglesToMesh(recentred);
+
+  snapshot();
+  // Replace the selected shapes (sorted, descending) with the single result.
+  const doomed = state.selection.slice().sort((a, b) => b - a);
+  for (const index of doomed) state.scene.splice(index, 1);
+  // Insert where the lowest removed index was, keeping the group's scene order.
+  const insertAt = doomed[doomed.length - 1];
+  state.scene.splice(insertAt, 0, {
+    type: 'mesh',
+    mesh,
+    position: centre,
+    rotation: [0, 0, 0],
+    size: [1, 1, 1],
+    color: solids[0].color.slice(),
+    importedSize: [max[0] - min[0], max[1] - min[1], max[2] - min[2]],
+    group: sources,
+  });
+  state.selection = [insertAt];
+  syncUi();
+}
+
+export function ungroupSelected() {
+  const groups = state.selection
+    .map((i) => state.scene[i])
+    .filter((s) => Array.isArray(s.group) && s.group.length);
+  if (groups.length === 0) return;
+  snapshot();
+  // Replace each group shape with its stored sources, then select them.
+  const created = [];
+  for (const group of groups) {
+    const at = state.scene.indexOf(group);
+    state.scene.splice(at, 1, ...group.group);
+    created.push(...group.group);
+  }
+  state.selection = created.map((s) => state.scene.indexOf(s));
+  syncUi();
+}
+
+export function toggleHole() {
+  if (state.selection.length === 0) return;
+  snapshot();
+  // Toggling applies to the whole selection: if any selected solid is not a
+  // hole yet, make them all holes; otherwise clear them all.
+  const makeHoles = state.selection.some((i) => !state.scene[i].isHole);
+  for (const i of state.selection) {
+    if (makeHoles) state.scene[i].isHole = true;
+    else delete state.scene[i].isHole;
+  }
+  syncUi();
+}
+
 export function undo() {
   applyScene(history.undo(state.scene));
 }
@@ -837,6 +956,12 @@ function syncUi() {
   document.getElementById('duplicate').disabled = shape === null;
   for (const button of alignButtons) button.disabled = state.selection.length < 2;
   for (const button of distributeButtons) button.disabled = state.selection.length < 3;
+  document.getElementById('group').disabled = state.selection.length === 0;
+  document.getElementById('hole').disabled = state.selection.length === 0;
+  const hasGroup = state.selection.some((i) => Array.isArray(state.scene[i].group) && state.scene[i].group.length);
+  document.getElementById('ungroup').disabled = !hasGroup;
+  const anyHole = state.selection.some((i) => state.scene[i].isHole);
+  document.getElementById('hole').textContent = anyHole ? 'Solid' : 'Hole';
   document.getElementById('export').disabled = state.scene.length === 0;
   document.getElementById('undo').disabled = !history.canUndo();
   for (const [axis, input] of coordInputs.entries()) {
@@ -902,6 +1027,11 @@ window.addEventListener('keydown', (event) => {
   }
   if (event.key === 'Delete' || event.key === 'Backspace') {
     deleteSelected();
+  } else if (event.key === 'g' || event.key === 'G') {
+    if (event.shiftKey) ungroupSelected();
+    else groupSelected();
+  } else if (event.key === 'h' || event.key === 'H') {
+    toggleHole();
   } else if (event.key === 'f' || event.key === 'F') {
     frameSelected();
   } else if (event.key === 'r' || event.key === 'R') {
@@ -925,6 +1055,9 @@ for (const type of ['box', 'sphere', 'cylinder', 'cone', 'pyramid', 'torus', 'ca
 
 document.getElementById('delete').addEventListener('click', deleteSelected);
 document.getElementById('duplicate').addEventListener('click', duplicateSelected);
+document.getElementById('group').addEventListener('click', groupSelected);
+document.getElementById('ungroup').addEventListener('click', ungroupSelected);
+document.getElementById('hole').addEventListener('click', toggleHole);
 document.getElementById('undo').addEventListener('click', undo);
 document.getElementById('redo').addEventListener('click', redo);
 document.getElementById('save').addEventListener('click', saveScene);
@@ -996,6 +1129,9 @@ window.__editor = {
   duplicateSelected,
   alignSelected,
   distributeSelected,
+  groupSelected,
+  ungroupSelected,
+  toggleHole,
   setSnap,
   saveScene,
   loadScene,
