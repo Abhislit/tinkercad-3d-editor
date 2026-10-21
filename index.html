@@ -24,6 +24,23 @@
     border-bottom: 1px solid #2b2f38;
   }
   #toolbar .sep { width: 1px; height: 20px; background: #2b2f38; margin: 0 4px; }
+  #toolbar .group {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    padding: 4px 8px;
+    border: 1px solid #2b2f38;
+    border-radius: 8px;
+    background: #1a1d23;
+  }
+  #toolbar .group > .label {
+    color: #6d7686;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding-right: 2px;
+  }
+  .swatch.active { outline: 2px solid #e7e9ee; outline-offset: 1px; }
   button {
     background: #262a33;
     color: inherit;
@@ -90,58 +107,62 @@
 </head>
 <body>
   <div id="toolbar">
-    <button id="add-box">Box</button>
-    <button id="add-sphere">Sphere</button>
-    <button id="add-cylinder">Cylinder</button>
-    <button id="add-cone">Cone</button>
-    <button id="add-pyramid">Pyramid</button>
-    <button id="add-torus">Torus</button>
-    <button id="add-capsule">Capsule</button>
-    <button id="add-tube">Tube</button>
-    <span class="sep"></span>
-    <button class="swatch" data-color="0" style="background:#e8503a" title="1"></button>
-    <button class="swatch" data-color="1" style="background:#f0a02a" title="2"></button>
-    <button class="swatch" data-color="2" style="background:#e8d44a" title="3"></button>
-    <button class="swatch" data-color="3" style="background:#63c95d" title="4"></button>
-    <button class="swatch" data-color="4" style="background:#3aa8e8" title="5"></button>
-    <button class="swatch" data-color="5" style="background:#7a5ce8" title="6"></button>
-    <button class="swatch" data-color="6" style="background:#e85ca8" title="7"></button>
-    <button class="swatch" data-color="7" style="background:#d8dde6" title="8"></button>
-    <label>Colour <input id="color" type="color" value="#e8503a" disabled></label>
-    <label>Opacity <input id="opacity" type="range" min="0" max="1" step="0.05" value="1" disabled></label>
-    <span class="sep"></span>
-    <button id="delete" disabled>Delete</button>
-    <button id="duplicate" disabled>Duplicate</button>
-    <span class="sep"></span>
-    <button data-align="min:x" title="Align min edge on X" disabled>X min</button>
-    <button data-align="centre:x" title="Align centre on X" disabled>X mid</button>
-    <button data-align="max:x" title="Align max edge on X" disabled>X max</button>
-    <button data-align="min:y" title="Align min edge on Y" disabled>Y min</button>
-    <button data-align="centre:y" title="Align centre on Y" disabled>Y mid</button>
-    <button data-align="max:y" title="Align max edge on Y" disabled>Y max</button>
-    <button data-align="min:z" title="Align min edge on Z" disabled>Z min</button>
-    <button data-align="centre:z" title="Align centre on Z" disabled>Z mid</button>
-    <button data-align="max:z" title="Align max edge on Z" disabled>Z max</button>
-    <span class="sep"></span>
-    <button data-distribute="x" title="Distribute evenly along X" disabled>Dist X</button>
-    <button data-distribute="y" title="Distribute evenly along Y" disabled>Dist Y</button>
-    <button data-distribute="z" title="Distribute evenly along Z" disabled>Dist Z</button>
-    <span class="sep"></span>
-    <button id="group" title="Boolean-group selection (G)">Group</button>
-    <button id="ungroup" title="Restore grouped sources (Shift+G)" disabled>Ungroup</button>
-    <button id="hole" title="Toggle hole cutter on selection (H)" disabled>Hole</button>
-    <span class="sep"></span>
-    <button id="undo" disabled>Undo</button>
-    <button id="redo" disabled>Redo</button>
-    <button id="snap">Snap: off</button>
-    <span class="sep"></span>
-    <button id="import">Import STL</button>
-    <input id="file" type="file" accept=".stl" hidden>
-    <span class="sep"></span>
-    <button id="save">Save</button>
-    <button id="load">Load</button>
-    <button id="export" disabled>Export STL</button>
-    <button id="png">PNG</button>
+    <div class="group"><span class="label">Add</span>
+      <button id="add-box">Box</button>
+      <button id="add-sphere">Sphere</button>
+      <button id="add-cylinder">Cylinder</button>
+      <button id="add-cone">Cone</button>
+      <button id="add-pyramid">Pyramid</button>
+      <button id="add-torus">Torus</button>
+      <button id="add-capsule">Capsule</button>
+      <button id="add-tube">Tube</button>
+    </div>
+    <div class="group"><span class="label">Colour</span>
+      <button class="swatch" data-color="0" style="background:#e8503a" title="1"></button>
+      <button class="swatch" data-color="1" style="background:#f0a02a" title="2"></button>
+      <button class="swatch" data-color="2" style="background:#e8d44a" title="3"></button>
+      <button class="swatch" data-color="3" style="background:#63c95d" title="4"></button>
+      <button class="swatch" data-color="4" style="background:#3aa8e8" title="5"></button>
+      <button class="swatch" data-color="5" style="background:#7a5ce8" title="6"></button>
+      <button class="swatch" data-color="6" style="background:#e85ca8" title="7"></button>
+      <button class="swatch" data-color="7" style="background:#d8dde6" title="8"></button>
+      <label>Custom <input id="color" type="color" value="#e8503a" disabled></label>
+      <label>Opacity <input id="opacity" type="range" min="0" max="1" step="0.05" value="1" disabled></label>
+    </div>
+    <div class="group"><span class="label">Transform</span>
+      <button id="delete" disabled>Delete</button>
+      <button id="duplicate" disabled>Duplicate</button>
+      <button data-align="min:x" title="Align min edge on X" disabled>X min</button>
+      <button data-align="centre:x" title="Align centre on X" disabled>X mid</button>
+      <button data-align="max:x" title="Align max edge on X" disabled>X max</button>
+      <button data-align="min:y" title="Align min edge on Y" disabled>Y min</button>
+      <button data-align="centre:y" title="Align centre on Y" disabled>Y mid</button>
+      <button data-align="max:y" title="Align max edge on Y" disabled>Y max</button>
+      <button data-align="min:z" title="Align min edge on Z" disabled>Z min</button>
+      <button data-align="centre:z" title="Align centre on Z" disabled>Z mid</button>
+      <button data-align="max:z" title="Align max edge on Z" disabled>Z max</button>
+      <button data-distribute="x" title="Distribute evenly along X" disabled>Dist X</button>
+      <button data-distribute="y" title="Distribute evenly along Y" disabled>Dist Y</button>
+      <button data-distribute="z" title="Distribute evenly along Z" disabled>Dist Z</button>
+    </div>
+    <div class="group"><span class="label">Boolean</span>
+      <button id="group" title="Boolean-group selection (G)">Group</button>
+      <button id="ungroup" title="Restore grouped sources (Shift+G)" disabled>Ungroup</button>
+      <button id="hole" title="Toggle hole cutter on selection (H)" disabled>Hole</button>
+    </div>
+    <div class="group"><span class="label">History</span>
+      <button id="undo" disabled>Undo</button>
+      <button id="redo" disabled>Redo</button>
+      <button id="snap">Snap: off</button>
+    </div>
+    <div class="group"><span class="label">File</span>
+      <button id="import">Import STL</button>
+      <input id="file" type="file" accept=".stl" hidden>
+      <button id="save">Save</button>
+      <button id="load">Load</button>
+      <button id="export" disabled>Export STL</button>
+      <button id="png">PNG</button>
+    </div>
   </div>
   <div id="stage">
     <canvas id="view"></canvas>

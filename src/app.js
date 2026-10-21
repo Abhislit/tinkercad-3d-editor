@@ -581,6 +581,18 @@ export function colorSelected(index) {
   syncUi();
 }
 
+export function nudgeSelected(dx, dy, dz, step = 0.1) {
+  if (state.selection.length === 0) return;
+  snapshot();
+  for (const i of state.selection) {
+    const position = state.scene[i].position;
+    position[0] += dx * step;
+    position[1] += dy * step;
+    position[2] += dz * step;
+  }
+  syncUi();
+}
+
 export function duplicateSelected() {
   if (state.selection.length === 0) return;
   snapshot();
@@ -987,11 +999,15 @@ function syncUi() {
   } else if (!editingCoord) {
     nameInput.value = '';
   }
+  const activeColor = shape ? rgbToHex(shape.color) : '';
+  for (const swatch of document.querySelectorAll('.swatch')) {
+    swatch.classList.toggle('active', rgbToHex(PALETTE[Number(swatch.dataset.color)]) === activeColor);
+  }
   document.getElementById('redo').disabled = !history.canRedo();
   if (state.selection.length > 1) {
     hint.innerHTML =
       `<b>${state.selection.length} selected</b> &middot; ` +
-      'F frame, R/X/Z rotate, [ ] scale, 1-8 colour, Ctrl+D duplicate, Del delete';
+      'F frame, R/X/Z rotate, [ ] scale, 1-8 colour, Ctrl+D duplicate, arrows nudge, Del delete';
   } else if (shape) {
     const dims = shape.size.map((v) => v.toFixed(2)).join(' x ');
     const rot = shape.rotation.map((r) => Math.round((r * 180) / Math.PI));
@@ -1000,15 +1016,26 @@ function syncUi() {
       (shape.type === 'mesh'
         ? ` &middot; imported ${shape.importedSize.map((v) => v.toFixed(1)).join(' x ')}`
         : '') +
-      '&middot; F frame, R/X/Z rotate, [ ] scale, 1-8 colour, Ctrl+D duplicate';
+      '&middot; F frame, R/X/Z rotate, [ ] scale, 1-8 colour, arrows nudge, Ctrl+D duplicate';
   } else {
     hint.textContent =
       'Drag to orbit · shift-drag to pan · wheel to zoom · click a shape to select';
   }
 }
 
+// Up is away from the camera (-Z), PageUp raises along Y.
+const NUDGES = {
+  ArrowLeft: [-1, 0, 0],
+  ArrowRight: [1, 0, 0],
+  ArrowUp: [0, 0, -1],
+  ArrowDown: [0, 0, 1],
+  PageUp: [0, 1, 0],
+  PageDown: [0, -1, 0],
+};
+
 window.addEventListener('keydown', (event) => {
-  if (event.target instanceof HTMLInputElement) return;
+  if (event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement)
+    return;
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
     event.preventDefault();
     if (event.shiftKey) redo();
@@ -1025,7 +1052,11 @@ window.addEventListener('keydown', (event) => {
     duplicateSelected();
     return;
   }
-  if (event.key === 'Delete' || event.key === 'Backspace') {
+  const nudge = NUDGES[event.key];
+  if (nudge) {
+    event.preventDefault();
+    nudgeSelected(nudge[0], nudge[1], nudge[2], event.shiftKey ? 1 : 0.1);
+  } else if (event.key === 'Delete' || event.key === 'Backspace') {
     deleteSelected();
   } else if (event.key === 'g' || event.key === 'G') {
     if (event.shiftKey) ungroupSelected();
@@ -1127,6 +1158,7 @@ window.__editor = {
   undo,
   redo,
   duplicateSelected,
+  nudgeSelected,
   alignSelected,
   distributeSelected,
   groupSelected,

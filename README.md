@@ -32,6 +32,7 @@ A real HTTP origin is required — ES modules do not load over `file://`.
 | Scale | `[` and `]` (±10%) |
 | Colour | `1`–`8`, or the swatches, or the colour picker |
 | Opacity | the `Opacity` slider (translucent shapes render sorted back-to-front) |
+| Nudge | arrows move X/Z, `PageUp`/`PageDown` move Y — 0.1 per step, `Shift` for 1.0 |
 | Delete | `Delete` / `Backspace` |
 | Duplicate | `Ctrl+D` |
 | Align / distribute | the `X/Y/Z min/mid/max` and `Dist X/Y/Z` buttons |
